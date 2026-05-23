@@ -17,7 +17,7 @@ import shutil
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
-from utils import get_category, safe_destination
+from utils import get_category, is_code_project, safe_destination
 
 logger = logging.getLogger(__name__)
 
@@ -90,14 +90,16 @@ class FileOrganizer:
             "skipped": 0,
             "duplicates": 0,
             "errors": 0,
+            "projects": 0,    # whole project folders moved
         }
 
         # Optional UI callbacks — set by main.py to drive the Rich display.
         # Keeping them None by default means the organizer works without any UI.
-        self._on_hashed: "callable | None" = None    # () after each file hashed
-        self._on_move: "callable | None" = None      # (src, dst) after a move
-        self._on_duplicate: "callable | None" = None # (path) when dupe skipped
-        self._on_error: "callable | None" = None     # (path, exc) on error
+        self._on_hashed: "callable | None" = None       # () after each file hashed
+        self._on_move: "callable | None" = None         # (src, dst) after a file move
+        self._on_project_move: "callable | None" = None # (dir, dst) project folder moved
+        self._on_duplicate: "callable | None" = None    # (path) when dupe skipped
+        self._on_error: "callable | None" = None        # (path, exc) on error
 
     # ------------------------------------------------------------------
     # Public interface
@@ -105,46 +107,78 @@ class FileOrganizer:
 
     def run(self) -> None:
         """Execute the full organise-and-deduplicate pipeline."""
-        # Config is shown by main.py via ui.print_config(); log it to file only.
         logger.debug("Source      : %s", self.source)
         logger.debug("Destination : %s", self.destination)
         logger.debug("Dry-run     : %s", self.dry_run)
 
-        files = self._collect_files()
-        if not files:
+        files, project_roots = self._collect_files_and_projects()
+
+        if not files and not project_roots:
             logger.info("No files found in source directory. Nothing to do.")
             return
 
-        logger.info("Found %d file(s) to process.", len(files))
-        hash_map = self._hash_files(files)
+        logger.info(
+            "Found %d file(s) and %d code project(s) to process.",
+            len(files), len(project_roots),
+        )
+
+        hash_map  = self._hash_files(files)
         duplicates = self._find_duplicates(hash_map)
         self._move_files(files, duplicates)
+        self._move_projects(project_roots)
         self._log_summary()
 
     # ------------------------------------------------------------------
-    # Step 1 — Collect
+    # Step 1 — Collect files + detect code projects
     # ------------------------------------------------------------------
 
-    def _collect_files(self) -> list[Path]:
-        """Return every regular file under ``self.source`` (recursive)."""
-        files: list[Path] = []
+    def _collect_files_and_projects(
+        self,
+    ) -> "tuple[list[Path], list[Path]]":
+        """Scan ``self.source`` and separate individual files from project dirs.
 
-        for path in self.source.rglob("*"):
-            if not path.is_file():
-                continue
-            # Skip files already inside the destination tree to avoid
-            # accidentally re-organising previously sorted files.
+        Top-level sub-directories of the source are checked via
+        :func:`~utils.is_code_project`.  Recognised projects are returned
+        separately so they can be moved as a whole unit, preserving their
+        internal folder structure inside ``Code/``.
+
+        Returns:
+            ``(files, project_roots)`` — individual files to hash/move and
+            project directories to move wholesale.
+        """
+        files: list[Path] = []
+        project_roots: list[Path] = []
+
+        for item in sorted(self.source.iterdir()):
+            # Never touch anything already inside the destination tree.
             try:
-                path.relative_to(self.destination)
-                logger.debug("Skipping (already in destination): %s", path)
+                item.relative_to(self.destination)
                 continue
             except ValueError:
-                pass  # path is outside destination — good, include it.
+                pass
 
-            files.append(path)
-            self.stats["scanned"] += 1
+            if item.is_dir():
+                if is_code_project(item):
+                    logger.info("Code project detected: %s", item.name)
+                    project_roots.append(item)
+                    self.stats["scanned"] += 1
+                else:
+                    # Regular folder — recurse and collect individual files.
+                    for path in item.rglob("*"):
+                        if not path.is_file():
+                            continue
+                        try:
+                            path.relative_to(self.destination)
+                            continue
+                        except ValueError:
+                            pass
+                        files.append(path)
+                        self.stats["scanned"] += 1
+            elif item.is_file():
+                files.append(item)
+                self.stats["scanned"] += 1
 
-        return files
+        return files, project_roots
 
     # ------------------------------------------------------------------
     # Step 2 — Hash (parallel)
@@ -265,6 +299,59 @@ class FileOrganizer:
     # Helpers
     # ------------------------------------------------------------------
 
+    def _move_projects(self, project_roots: list[Path]) -> None:
+        """Move entire code-project folders wholesale into ``Code/``.
+
+        Each project folder lands at ``dest/Code/<project-name>/``,
+        preserving every file and sub-folder inside it exactly as-is.
+        Name collisions are resolved the same way as regular files
+        (``my-app/`` → ``my-app_1/``).
+
+        Args:
+            project_roots: Directories identified as code projects.
+        """
+        if not project_roots:
+            return
+
+        code_dir = self.destination / "Code"
+        self._ensure_dir(code_dir)
+
+        for project_dir in project_roots:
+            target = safe_destination(code_dir, project_dir)
+
+            if self.dry_run:
+                logger.info(
+                    "[DRY-RUN] Would move project: %s → %s", project_dir, target
+                )
+                if self._on_project_move:
+                    self._on_project_move(project_dir, target)
+                self.stats["moved"] += 1
+                self.stats["projects"] += 1
+                continue
+
+            try:
+                import shutil as _shutil
+                _shutil.move(str(project_dir), str(target))
+                logger.info("Moved project: %s → %s", project_dir, target)
+                if self._on_project_move:
+                    self._on_project_move(project_dir, target)
+                self.stats["moved"] += 1
+                self.stats["projects"] += 1
+            except PermissionError as exc:
+                logger.error(
+                    "Permission denied moving project %s: %s", project_dir, exc
+                )
+                if self._on_error:
+                    self._on_error(project_dir, exc)
+                self.stats["errors"] += 1
+            except OSError as exc:
+                logger.error(
+                    "Error moving project %s: %s", project_dir, exc
+                )
+                if self._on_error:
+                    self._on_error(project_dir, exc)
+                self.stats["errors"] += 1
+
     def _ensure_dir(self, directory: Path) -> None:
         """Create *directory* (and parents) if it does not exist."""
         if directory.exists():
@@ -282,6 +369,7 @@ class FileOrganizer:
         logger.info("Run complete%s", " (dry-run)" if self.dry_run else "")
         logger.info("  Files scanned   : %d", s["scanned"])
         logger.info("  Files moved     : %d", s["moved"])
+        logger.info("  Projects moved  : %d", s["projects"])
         logger.info("  Duplicates found: %d", s["duplicates"])
         logger.info("  Files skipped   : %d", s["skipped"])
         logger.info("  Errors          : %d", s["errors"])

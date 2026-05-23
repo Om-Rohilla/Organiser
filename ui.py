@@ -114,28 +114,49 @@ def make_progress() -> Progress:
 
 # ── Per-file event lines ──────────────────────────────────────────────────────
 
+_FILE_MAX = 45   # max chars shown for a filename
+_DEST_MAX = 32   # max chars shown for destination label
+
+
+def _clip(text: str, max_len: int) -> str:
+    """Truncate *text* with a trailing ellipsis if longer than *max_len*."""
+    return text if len(text) <= max_len else text[: max_len - 1] + "…"
+
+
 def log_move(src: Path, dst: Path, dry_run: bool) -> None:
-    prefix = "  [bold yellow][DRY-RUN][/] " if dry_run else "  "
+    tag  = "[bold yellow]DRY[/]" if dry_run else "   "
+    name = _clip(src.name, _FILE_MAX)
+    dest = _clip(f"{dst.parent.name}/{dst.name}", _DEST_MAX)
     console.print(
-        f"{prefix}[moved]✔[/]  [path]{src.name}[/]"
-        f"  [muted]→[/]  [moved]{dst.parent.name}/{dst.name}[/]"
+        f"  {tag} [moved]✔[/]  [path]{name:<{_FILE_MAX}}[/]  [muted]→[/]  [moved]{dest}[/]",
+        no_wrap=True, overflow="ellipsis",
     )
 
 
 def log_duplicate(path: Path) -> None:
-    console.print(f"  [dupe]⊗  Duplicate (skipped):[/]  [path]{path.name}[/]")
+    name = _clip(path.name, _FILE_MAX)
+    console.print(
+        f"       [dupe]⊗  DUPE[/]   [path]{name}[/]",
+        no_wrap=True, overflow="ellipsis",
+    )
 
 
 def log_error(path: Path, exc: Exception) -> None:
-    console.print(f"  [error]✗  Error:[/]  [path]{path.name}[/]  [muted]—[/]  {exc}")
+    name = _clip(path.name, _FILE_MAX)
+    console.print(
+        f"       [error]✗  ERR [/]   [path]{name}[/]  [muted]—[/]  {exc}",
+        no_wrap=True, overflow="ellipsis",
+    )
 
 
 def log_project_move(project_dir: Path, target: Path, dry_run: bool) -> None:
     """Log a whole project folder being moved into Code/."""
-    prefix = "  [bold yellow][DRY-RUN][/] " if dry_run else "  "
+    tag  = "[bold yellow]DRY[/]" if dry_run else "   "
+    name = _clip(project_dir.name, _FILE_MAX)
+    dest = _clip(f"Code/{target.name}", _DEST_MAX)
     console.print(
-        f"{prefix}[moved]📁 PROJECT[/]  [path]{project_dir.name}[/]"
-        f"  [muted]→[/]  [moved]Code/{target.name}[/]"
+        f"  {tag} [moved]📁 PROJ[/]  [path]{name:<{_FILE_MAX}}[/]  [muted]→[/]  [moved]{dest}[/]",
+        no_wrap=True, overflow="ellipsis",
     )
 
 

@@ -6,7 +6,9 @@ Design decisions:
     multiple CPU cores are used in parallel.
   - The ``dry_run`` flag gates every destructive call (mkdir, rename/move).
     When True, the organizer only *describes* what it would do.
-  - Logging is the only output mechanism — no bare ``print()`` calls here.
+  - Logging goes to the file handler; Rich UI callbacks drive the console.
+  - UI callbacks (_on_hashed, _on_move, _on_duplicate, _on_error) are
+    optional callables set by main.py — keeping this module UI-agnostic.
 """
 
 import hashlib
@@ -90,15 +92,23 @@ class FileOrganizer:
             "errors": 0,
         }
 
+        # Optional UI callbacks — set by main.py to drive the Rich display.
+        # Keeping them None by default means the organizer works without any UI.
+        self._on_hashed: "callable | None" = None    # () after each file hashed
+        self._on_move: "callable | None" = None      # (src, dst) after a move
+        self._on_duplicate: "callable | None" = None # (path) when dupe skipped
+        self._on_error: "callable | None" = None     # (path, exc) on error
+
     # ------------------------------------------------------------------
     # Public interface
     # ------------------------------------------------------------------
 
     def run(self) -> None:
         """Execute the full organise-and-deduplicate pipeline."""
-        logger.info("Source      : %s", self.source)
-        logger.info("Destination : %s", self.destination)
-        logger.info("Dry-run     : %s", self.dry_run)
+        # Config is shown by main.py via ui.print_config(); log it to file only.
+        logger.debug("Source      : %s", self.source)
+        logger.debug("Destination : %s", self.destination)
+        logger.debug("Dry-run     : %s", self.dry_run)
 
         files = self._collect_files()
         if not files:
@@ -155,6 +165,8 @@ class FileOrganizer:
 
             for future in as_completed(futures):
                 file_path, digest = future.result()
+                if self._on_hashed:
+                    self._on_hashed()
                 if digest is None:
                     self.stats["errors"] += 1
                     continue
@@ -198,6 +210,8 @@ class FileOrganizer:
             )
             for dupe in dupes:
                 logger.warning("  └─ duplicate (will be skipped): %s", dupe)
+                if self._on_duplicate:
+                    self._on_duplicate(dupe)
                 duplicates.add(dupe)
                 self.stats["duplicates"] += 1
 
@@ -225,18 +239,26 @@ class FileOrganizer:
 
             if self.dry_run:
                 logger.info("[DRY-RUN] Would move: %s → %s", file_path, target)
+                if self._on_move:
+                    self._on_move(file_path, target)
                 self.stats["moved"] += 1
                 continue
 
             try:
                 shutil.move(str(file_path), str(target))
                 logger.info("Moved: %s → %s", file_path, target)
+                if self._on_move:
+                    self._on_move(file_path, target)
                 self.stats["moved"] += 1
             except PermissionError as exc:
                 logger.error("Permission denied moving %s: %s", file_path, exc)
+                if self._on_error:
+                    self._on_error(file_path, exc)
                 self.stats["errors"] += 1
             except OSError as exc:
                 logger.error("Error moving %s: %s", file_path, exc)
+                if self._on_error:
+                    self._on_error(file_path, exc)
                 self.stats["errors"] += 1
 
     # ------------------------------------------------------------------

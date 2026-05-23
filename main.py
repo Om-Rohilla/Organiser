@@ -120,37 +120,48 @@ def main() -> None:
     )
 
     # Wire per-file Rich display callbacks
-    organizer._on_move      = lambda src, dst: ui.log_move(src, dst, args.dry_run)
-    organizer._on_duplicate = lambda path:     ui.log_duplicate(path)
-    organizer._on_error     = lambda path, exc: ui.log_error(path, exc)
+    organizer._on_move         = lambda src, dst: ui.log_move(src, dst, args.dry_run)
+    organizer._on_project_move = lambda d, dst:   ui.log_project_move(d, dst, args.dry_run)
+    organizer._on_duplicate    = lambda path:      ui.log_duplicate(path)
+    organizer._on_error        = lambda path, exc: ui.log_error(path, exc)
 
-    # ── 3. Collect files ──────────────────────────────────────────────────────
-    files = organizer._collect_files()
+    # ── 3. Collect files + detect code projects ─────────────────────────────
+    files, project_roots = organizer._collect_files_and_projects()
 
-    if not files:
+    if not files and not project_roots:
         ui.console.print("[warning]⚠  No files found in the source directory.[/]")
         return
 
-    ui.console.print(
-        f"[info]  Found [bold]{len(files)}[/] file(s) to process.[/]\n"
-    )
+    parts = []
+    if files:
+        parts.append(f"[bold]{len(files)}[/] file(s)")
+    if project_roots:
+        parts.append(f"[bold]{len(project_roots)}[/] code project(s)")
+    ui.console.print(f"[info]  Found {' + '.join(parts)} to process.[/]\n")
 
-    # ── 4. Hash with live progress bar ────────────────────────────────────────
-    with ui.make_progress() as progress:
-        task = progress.add_task(
-            "🔑  Computing MD5 hashes…", total=len(files)
-        )
-        organizer._on_hashed = lambda: progress.advance(task)
-        hash_map = organizer._hash_files(files)
+    # ── 4. Hash with live progress bar (files only — projects aren't hashed) ──
+    if files:
+        with ui.make_progress() as progress:
+            task = progress.add_task(
+                "🔑  Computing MD5 hashes…", total=len(files)
+            )
+            organizer._on_hashed = lambda: progress.advance(task)
+            hash_map = organizer._hash_files(files)
 
-    # ── 5. Deduplicate ────────────────────────────────────────────────────────
-    duplicates = organizer._find_duplicates(hash_map)
+        # ── 5. Deduplicate ────────────────────────────────────────────────────
+        duplicates = organizer._find_duplicates(hash_map)
+        ui.console.print()
+        # ── 6. Move individual files ──────────────────────────────────────────
+        organizer._move_files(files, duplicates)
+    else:
+        duplicates = set()
 
-    # ── 6. Move files ─────────────────────────────────────────────────────────
-    ui.console.print()
-    organizer._move_files(files, duplicates)
+    # ── 7. Move whole project folders ─────────────────────────────────────────
+    if project_roots:
+        ui.console.print()
+        organizer._move_projects(project_roots)
 
-    # ── 7. Rich summary + log footer ─────────────────────────────────────────
+    # ── 8. Rich summary + log footer ──────────────────────────────────────────
     ui.print_summary(organizer.stats, args.dry_run)
     logging.getLogger(__name__).info("Log saved to: %s", LOG_FILE)
 

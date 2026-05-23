@@ -25,7 +25,7 @@ LOG_FILE = "organizer.log"
 
 def setup_logging(verbose: bool) -> None:
     """Configure logging:
-    - Console  → RichHandler  (beautiful coloured output, respects --verbose)
+    - Console  → RichHandler  (WARNING+ only — Rich callbacks handle per-file output)
     - Log file → FileHandler  (always captures DEBUG and above)
     """
     root = logging.getLogger()
@@ -36,14 +36,16 @@ def setup_logging(verbose: bool) -> None:
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    # Rich console handler — INFO by default, DEBUG if --verbose
+    # Rich console handler — WARNING only so per-file INFO noise is suppressed.
+    # All per-file feedback (moves, duplicates, errors) goes through Rich
+    # UI callbacks instead, keeping the console clean and structured.
     rich_handler = RichHandler(
         console=ui.console,
         show_path=False,
         rich_tracebacks=True,
         markup=True,
     )
-    rich_handler.setLevel(logging.DEBUG if verbose else logging.INFO)
+    rich_handler.setLevel(logging.WARNING)
     root.addHandler(rich_handler)
 
     # Plain file handler — always full detail

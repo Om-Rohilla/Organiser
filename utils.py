@@ -108,6 +108,69 @@ EXTENSION_MAP: dict[str, str] = {
 UNKNOWN_CATEGORY = "Misc"
 
 
+# ---------------------------------------------------------------------------
+# Code-project detection
+# ---------------------------------------------------------------------------
+
+#: Filenames / directory names that indicate a folder is a code project root.
+#: If **any** of these exist as a direct child of a folder, the entire folder
+#: is moved wholesale into ``Code/`` instead of sorting its files individually.
+PROJECT_MARKERS: frozenset[str] = frozenset({
+    # Version control
+    ".git",
+    # Python
+    "requirements.txt", "Pipfile", "pyproject.toml",
+    "setup.py", "setup.cfg",
+    # JavaScript / Node.js
+    "package.json", "yarn.lock", "package-lock.json",
+    # Rust
+    "Cargo.toml",
+    # Go
+    "go.mod",
+    # Java (Maven / Gradle)
+    "pom.xml", "build.gradle", "build.gradle.kts", "gradlew", "mvnw",
+    # C / C++
+    "Makefile", "CMakeLists.txt",
+    # Ruby
+    "Gemfile",
+    # PHP
+    "composer.json",
+    # Docker
+    "Dockerfile", "docker-compose.yml", "docker-compose.yaml",
+})
+
+# File *suffixes* (no dot) that also signal a project root.
+_PROJECT_SUFFIXES: frozenset[str] = frozenset({
+    "sln",       # .NET solution
+    "csproj",    # .NET project
+    "xcodeproj", # Xcode
+})
+
+
+def is_code_project(folder: Path) -> bool:
+    """Return ``True`` if *folder* looks like a code project root.
+
+    Only the **direct children** of *folder* are inspected (no deep scan).
+    A folder qualifies when it contains at least one recognised marker file
+    or directory (e.g. ``.git``, ``package.json``, ``requirements.txt``).
+
+    Args:
+        folder: Directory to inspect.
+
+    Returns:
+        ``True`` if a project marker is found, ``False`` otherwise.
+    """
+    try:
+        for item in folder.iterdir():
+            if item.name in PROJECT_MARKERS:
+                return True
+            if item.suffix.lstrip(".").lower() in _PROJECT_SUFFIXES:
+                return True
+    except PermissionError:
+        pass
+    return False
+
+
 def get_category(file_path: Path) -> str:
     """Return the category folder name for a given file.
 

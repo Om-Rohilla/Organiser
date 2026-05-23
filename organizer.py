@@ -237,13 +237,14 @@ class FileOrganizer:
             paths.sort()
             keeper, *dupes = paths
 
-            logger.warning(
-                "Duplicate content detected (MD5: %s). Keeping: %s",
+            # Log to file only — console display is handled by _on_duplicate callback.
+            logger.info(
+                "Duplicate detected (MD5: %s). Keeping: %s",
                 digest,
                 keeper,
             )
             for dupe in dupes:
-                logger.warning("  └─ duplicate (will be skipped): %s", dupe)
+                logger.info("  └─ duplicate (skipped): %s", dupe)
                 if self._on_duplicate:
                     self._on_duplicate(dupe)
                 duplicates.add(dupe)

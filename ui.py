@@ -130,6 +130,15 @@ def log_error(path: Path, exc: Exception) -> None:
     console.print(f"  [error]✗  Error:[/]  [path]{path.name}[/]  [muted]—[/]  {exc}")
 
 
+def log_project_move(project_dir: Path, target: Path, dry_run: bool) -> None:
+    """Log a whole project folder being moved into Code/."""
+    prefix = "  [bold yellow][DRY-RUN][/] " if dry_run else "  "
+    console.print(
+        f"{prefix}[moved]📁 PROJECT[/]  [path]{project_dir.name}[/]"
+        f"  [muted]→[/]  [moved]Code/{target.name}[/]"
+    )
+
+
 # ── Summary panel ─────────────────────────────────────────────────────────────
 
 def print_summary(stats: "dict[str, int]", dry_run: bool) -> None:
@@ -146,11 +155,12 @@ def print_summary(stats: "dict[str, int]", dry_run: bool) -> None:
     tbl.add_column("",        justify="center",  min_width=3)
 
     rows = [
-        ("📄  Files scanned",    "scanned",    "",               ""),
-        ("✅  Files moved",      "moved",      "[green]✓[/]",    ""),
-        ("⊗   Duplicates found", "duplicates", "[magenta]![/]",  "[green]✓[/]"),
-        ("⏭   Skipped",          "skipped",    "",               ""),
-        ("❌  Errors",           "errors",     "[red]✗[/]",      "[green]✓[/]"),
+        ("📄  Files scanned",    "scanned",    "",              ""),
+        ("✅  Files moved",      "moved",      "[green]✓[/]",   ""),
+        ("📁  Projects moved",   "projects",   "[green]✓[/]",   ""),
+        ("⊗   Duplicates found", "duplicates", "[magenta]![/]", "[green]✓[/]"),
+        ("⏭   Skipped",          "skipped",    "",              ""),
+        ("❌  Errors",           "errors",     "[red]✗[/]",     "[green]✓[/]"),
     ]
 
     for label, key, bad_icon, good_icon in rows:

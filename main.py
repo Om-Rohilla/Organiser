@@ -4,12 +4,16 @@ main.py — Entry point: argument parsing, Rich UI setup, and run orchestration.
 Run with:
     python main.py --source ~/Downloads --dest ~/Organized
     python main.py --source ~/Downloads --dest ~/Organized --dry-run
+    python main.py --source ~/Downloads --dest ~/Organized --fresh   ← safe reset
+    python main.py --source ~/Downloads --dest ~/Organized --undo    ← undo last run
     python main.py --source ~/Downloads --dest ~/Organized --workers 4 --verbose
 """
 
 import argparse
 import logging
+import shutil
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from rich.logging import RichHandler
@@ -74,6 +78,8 @@ def parse_args() -> argparse.Namespace:
 examples:
   python main.py --source ~/Downloads --dest ~/Organized
   python main.py --source ~/Downloads --dest ~/Organized --dry-run
+  python main.py --source ~/Downloads --dest ~/Organized --fresh
+  python main.py --source ~/Downloads --dest ~/Organized --undo
   python main.py --source ~/Downloads --dest ~/Organized --workers 4 --verbose
         """,
     )
@@ -89,16 +95,23 @@ examples:
                         help="Print DEBUG-level messages to the console.")
     parser.add_argument("--undo",     action="store_true", default=False,
                         help="Reverse the last run using the saved journal file.")
+    parser.add_argument("--fresh",    action="store_true", default=False,
+                        help=(
+                            "Safely move the existing destination to a timestamped "
+                            "backup before starting (e.g. Organized_backup_2026-05-24/). "
+                            "NEVER deletes files. Use this instead of 'rm -rf'."
+                        ))
     return parser.parse_args()
 
 
 def validate_args(args: argparse.Namespace) -> None:
-    if not args.source.exists():
-        ui.console.print(f"[error]✗  Source does not exist:[/] {args.source}")
-        sys.exit(1)
-    if not args.source.is_dir():
-        ui.console.print(f"[error]✗  Source is not a directory:[/] {args.source}")
-        sys.exit(1)
+    if not args.undo:   # --undo doesn't need a valid source
+        if not args.source.exists():
+            ui.console.print(f"[error]✗  Source does not exist:[/] {args.source}")
+            sys.exit(1)
+        if not args.source.is_dir():
+            ui.console.print(f"[error]✗  Source is not a directory:[/] {args.source}")
+            sys.exit(1)
     if args.workers is not None and args.workers < 1:
         ui.console.print("[error]✗  --workers must be a positive integer.[/]")
         sys.exit(1)
@@ -111,45 +124,101 @@ def main() -> None:
     setup_logging(verbose=args.verbose)
     validate_args(args)
 
-    # ── 0. Handle --undo before doing anything else ─────────────────────────
-    journal_path = Path(__file__).resolve().parent / JOURNAL_FILENAME
+    journal_path  = Path(__file__).resolve().parent / JOURNAL_FILENAME
+    dest_resolved = args.dest.resolve()
+
+    # ── 0a. --undo: reverse last run ─────────────────────────────────────────
     if args.undo:
         ui.print_banner()
-        ui.console.print(f"  [warning]⚠  UNDO mode — reversing last run[/]\n")
+        ui.console.print("  [warning]⚠  UNDO mode — reversing last run[/]\n")
         if not journal_path.exists():
-            ui.console.print(f"  [error]✗  No journal found at:[/] [path]{journal_path}[/]")
-            ui.console.print("  Run a normal (non-dry-run) pass first to create a journal.")
+            ui.console.print(
+                f"  [error]✗  No journal found at:[/] [path]{journal_path}[/]"
+            )
+            ui.console.print(
+                "  Run a normal (non-dry-run) pass first to create a journal."
+            )
             sys.exit(1)
         try:
             ok, fail = MoveJournal.undo(journal_path)
-            ui.console.print(f"  [success]✔  Undo complete:[/] {ok} restored, {fail} failed")
+            ui.console.print(
+                f"  [success]✔  Undo complete:[/] {ok} restored, {fail} failed"
+            )
             if ok > 0:
-                journal_path.unlink(missing_ok=True)   # clear journal after successful undo
+                journal_path.unlink(missing_ok=True)
         except Exception as exc:
             ui.console.print(f"  [error]✗  Undo failed:[/] {exc}")
             sys.exit(1)
         return
 
+    # ── 0b. --fresh: safely back up existing destination ─────────────────────
+    if args.fresh and dest_resolved.exists():
+        timestamp   = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        backup_path = dest_resolved.parent / f"{dest_resolved.name}_backup_{timestamp}"
+        ui.print_banner()
+        ui.console.print("  [warning]⚠  --fresh: existing destination detected[/]")
+        ui.console.print(f"     Source : [path]{dest_resolved}[/]")
+        ui.console.print(f"     Backup : [path]{backup_path}[/]")
+        ui.console.print("")
+        try:
+            shutil.move(str(dest_resolved), str(backup_path))
+            ui.console.print(
+                "  [success]✔  Backup complete — your files are safe.[/]"
+            )
+            ui.console.print(
+                f"     [muted]Backed up to:[/] [path]{backup_path}[/]"
+            )
+            ui.console.print("  Starting fresh run…\n")
+        except OSError as exc:
+            ui.console.print(f"  [error]✗  Backup failed:[/] {exc}")
+            sys.exit(1)
+
     # ── 1. Banner + config ────────────────────────────────────────────────────
     ui.print_banner()
+
+    # Warn if destination already has files and --fresh was not used
+    if (
+        dest_resolved.exists()
+        and dest_resolved.is_dir()
+        and any(dest_resolved.iterdir())
+        and not args.fresh
+    ):
+        ui.console.print(
+            "  [warning]⚠  Destination already contains files.[/]"
+        )
+        ui.console.print(
+            f"     [path]{dest_resolved}[/]"
+        )
+        ui.console.print("")
+        ui.console.print(
+            "  The organiser will merge new files into it (safe)."
+        )
+        ui.console.print(
+            "  For a clean re-run without losing anything, use [bold]--fresh[/]:"
+        )
+        ui.console.print(
+            "     [bold]python main.py ... --fresh[/]"
+            "   [muted]← backs up old folder, then starts clean[/]\n"
+        )
+
     ui.print_config(
         source=args.source.resolve(),
-        dest=args.dest.resolve(),
+        dest=dest_resolved,
         dry_run=args.dry_run,
         workers=args.workers,
     )
 
-    # ── 2. Load optional organiser.toml config ───────────────────────────────
+    # ── 2. Load optional organiser.toml config ────────────────────────────────
     cfg = load_config()
     cfg_path = find_config_file()
     if cfg_path:
         ui.console.print(f"  [muted]⚙  Config loaded:[/] [path]{cfg_path}[/]\n")
 
     # Apply user extensions / project markers from config
-    from utils import EXTENSION_MAP, MARKER_WEIGHTS
     import utils
-    utils.EXTENSION_MAP   = apply_config_to_extension_map(cfg, EXTENSION_MAP)
-    utils.MARKER_WEIGHTS  = apply_config_to_marker_weights(cfg, MARKER_WEIGHTS)
+    from utils import EXTENSION_MAP, MARKER_WEIGHTS
+    utils.EXTENSION_MAP  = apply_config_to_extension_map(cfg, EXTENSION_MAP)
+    utils.MARKER_WEIGHTS = apply_config_to_marker_weights(cfg, MARKER_WEIGHTS)
 
     # ── 3. Build organizer & wire UI callbacks ────────────────────────────────
     organizer = FileOrganizer(
@@ -169,7 +238,7 @@ def main() -> None:
     if not args.dry_run:
         organizer.journal = MoveJournal(journal_path, dry_run=False)
 
-    # ── 4. Collect files + detect code projects ─────────────────────────────
+    # ── 4. Collect files + detect code projects ──────────────────────────────
     files, project_roots = organizer._collect_files_and_projects()
 
     if not files and not project_roots:
@@ -187,7 +256,7 @@ def main() -> None:
     if files:
         with ui.make_progress() as progress:
             task = progress.add_task(
-                "🔑  Computing MD5 hashes…", total=len(files)
+                "🔑  Computing hashes…", total=len(files)
             )
             organizer._on_hashed = lambda: progress.advance(task)
             hash_map = organizer._hash_files(files)
@@ -200,7 +269,7 @@ def main() -> None:
     else:
         duplicates = set()
 
-    # ── 8. Move whole project folders ─────────────────────────────────────────
+    # ── 8. Move whole project folders ────────────────────────────────────────
     if project_roots:
         ui.console.print()
         organizer._move_projects(project_roots)
@@ -209,7 +278,7 @@ def main() -> None:
     if organizer.journal and organizer.journal.op_count > 0:
         organizer.journal.save()
         ui.console.print(
-            f"  [muted]↩  To undo this run:[/] [path]python main.py --undo[/]\n"
+            "  [muted]↩  To undo this run:[/] [bold]python main.py --undo[/]\n"
         )
     ui.print_summary(organizer.stats, args.dry_run)
     logging.getLogger(__name__).info("Log saved to: %s", LOG_FILE)

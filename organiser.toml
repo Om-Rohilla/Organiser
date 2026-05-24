@@ -1,0 +1,35 @@
+# organiser.toml — Optional user configuration for File Organiser
+#
+# Place this file in the project directory OR at:
+#   ~/.config/organiser/organiser.toml
+#
+# The tool works perfectly without this file — it only applies when found.
+# Delete or rename this file to restore built-in defaults.
+
+# ── Run behaviour ──────────────────────────────────────────────────────────────
+[behavior]
+# dry_run = true    # Uncomment to always preview without moving anything
+# workers = 4       # Parallel workers (0 = auto / all CPU cores)
+
+# ── Custom category rules ──────────────────────────────────────────────────────
+# Map file extensions (lowercase, no dot) to a folder name.
+# These are merged on top of the built-in extension map.
+# You can override existing categories or add entirely new ones.
+[categories]
+# Examples (uncomment to activate):
+# CAD    = ["dwg", "dxf", "step", "iges", "stl"]
+# eBooks = ["epub", "mobi", "azw3", "cbr", "cbz"]
+# RAW    = ["arw", "cr2", "nef", "orf", "rw2"]
+# Design = ["psd", "ai", "fig", "sketch", "xd"]
+
+# ── Extra project markers ──────────────────────────────────────────────────────
+# Filenames that signal a code project root (scored at weight 5 each).
+# Add ecosystem-specific markers that aren't in the built-in list.
+[project_markers]
+extra = [
+    # "Podfile",        # iOS / CocoaPods
+    # "pubspec.yaml",   # Flutter / Dart
+    # "mix.exs",        # Elixir
+    # "rebar.config",   # Erlang
+    # "build.zig",      # Zig
+]

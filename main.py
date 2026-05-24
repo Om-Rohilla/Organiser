@@ -15,6 +15,7 @@ from pathlib import Path
 from rich.logging import RichHandler
 
 import ui
+from config import apply_config_to_extension_map, apply_config_to_marker_weights, find_config_file, load_config
 from organizer import FileOrganizer
 
 
@@ -116,7 +117,19 @@ def main() -> None:
         workers=args.workers,
     )
 
-    # ── 2. Build organizer & wire UI callbacks ────────────────────────────────
+    # ── 2. Load optional organiser.toml config ───────────────────────────────
+    cfg = load_config()
+    cfg_path = find_config_file()
+    if cfg_path:
+        ui.console.print(f"  [muted]⚙  Config loaded:[/] [path]{cfg_path}[/]\n")
+
+    # Apply user extensions / project markers from config
+    from utils import EXTENSION_MAP, MARKER_WEIGHTS
+    import utils
+    utils.EXTENSION_MAP   = apply_config_to_extension_map(cfg, EXTENSION_MAP)
+    utils.MARKER_WEIGHTS  = apply_config_to_marker_weights(cfg, MARKER_WEIGHTS)
+
+    # ── 3. Build organizer & wire UI callbacks ────────────────────────────────
     organizer = FileOrganizer(
         source=args.source,
         destination=args.dest,
@@ -130,7 +143,7 @@ def main() -> None:
     organizer._on_duplicate    = lambda path:      ui.log_duplicate(path)
     organizer._on_error        = lambda path, exc: ui.log_error(path, exc)
 
-    # ── 3. Collect files + detect code projects ─────────────────────────────
+    # ── 4. Collect files + detect code projects ─────────────────────────────
     files, project_roots = organizer._collect_files_and_projects()
 
     if not files and not project_roots:
@@ -144,7 +157,7 @@ def main() -> None:
         parts.append(f"[bold]{len(project_roots)}[/] code project(s)")
     ui.console.print(f"[info]  Found {' + '.join(parts)} to process.[/]\n")
 
-    # ── 4. Hash with live progress bar (files only — projects aren't hashed) ──
+    # ── 5. Hash with live progress bar (files only — projects aren't hashed) ──
     if files:
         with ui.make_progress() as progress:
             task = progress.add_task(
@@ -153,20 +166,20 @@ def main() -> None:
             organizer._on_hashed = lambda: progress.advance(task)
             hash_map = organizer._hash_files(files)
 
-        # ── 5. Deduplicate ────────────────────────────────────────────────────
+        # ── 6. Deduplicate ────────────────────────────────────────────────────
         duplicates = organizer._find_duplicates(hash_map)
         ui.console.print()
-        # ── 6. Move individual files ──────────────────────────────────────────
+        # ── 7. Move individual files ──────────────────────────────────────────
         organizer._move_files(files, duplicates)
     else:
         duplicates = set()
 
-    # ── 7. Move whole project folders ─────────────────────────────────────────
+    # ── 8. Move whole project folders ─────────────────────────────────────────
     if project_roots:
         ui.console.print()
         organizer._move_projects(project_roots)
 
-    # ── 8. Rich summary + log footer ──────────────────────────────────────────
+    # ── 9. Rich summary + log footer ──────────────────────────────────────────
     ui.print_summary(organizer.stats, args.dry_run)
     logging.getLogger(__name__).info("Log saved to: %s", LOG_FILE)
 

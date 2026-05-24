@@ -165,6 +165,8 @@ class FileOrganizer:
                 else:
                     # Regular folder — recurse and collect individual files.
                     for path in item.rglob("*"):
+                        if path.is_symlink():   # skip symlinks — avoids infinite loops
+                            continue
                         if not path.is_file():
                             continue
                         try:

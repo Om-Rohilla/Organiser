@@ -220,13 +220,14 @@ def format_size(num_bytes: int) -> str:
     """Convert a byte count to a human-readable string (e.g. ``'4.2 MB'``).
 
     Args:
-        num_bytes: Size in bytes.
+        num_bytes: Size in bytes (non-negative integer).
 
     Returns:
         A formatted string with the appropriate unit.
     """
+    value: float = float(num_bytes)   # explicit float avoids int /= type error
     for unit in ("B", "KB", "MB", "GB", "TB"):
-        if num_bytes < 1024:
-            return f"{num_bytes:.1f} {unit}"
-        num_bytes /= 1024  # type: ignore[assignment]
-    return f"{num_bytes:.1f} PB"
+        if value < 1024:
+            return f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{value:.1f} PB"

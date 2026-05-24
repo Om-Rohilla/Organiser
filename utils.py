@@ -109,66 +109,104 @@ UNKNOWN_CATEGORY = "Misc"
 
 
 # ---------------------------------------------------------------------------
-# Code-project detection
+# Code-project detection — confidence scoring
 # ---------------------------------------------------------------------------
 
-#: Filenames / directory names that indicate a folder is a code project root.
-#: If **any** of these exist as a direct child of a folder, the entire folder
-#: is moved wholesale into ``Code/`` instead of sorting its files individually.
-PROJECT_MARKERS: frozenset[str] = frozenset({
-    # Version control
-    ".git",
+# Each marker file/directory is assigned a weight.  A folder must reach
+# PROJECT_THRESHOLD to be treated as a project root (moved wholesale).
+#
+# Using weights instead of a simple boolean prevents false positives:
+# e.g. a random folder containing only a loose "requirements.txt" scores 3
+# — below the threshold — and its files are sorted individually instead.
+MARKER_WEIGHTS: dict[str, int] = {
+    # Version control — definitive proof
+    ".git":               10,
+    # Node / JavaScript
+    "package.json":        8,
+    "yarn.lock":           5,
+    "package-lock.json":   4,
     # Python
-    "requirements.txt", "Pipfile", "pyproject.toml",
-    "setup.py", "setup.cfg",
-    # JavaScript / Node.js
-    "package.json", "yarn.lock", "package-lock.json",
+    "pyproject.toml":      7,
+    "Pipfile":             6,
+    "setup.py":            5,
+    "setup.cfg":           4,
+    "requirements.txt":    3,   # alone is NOT enough (common loose file)
     # Rust
-    "Cargo.toml",
+    "Cargo.toml":          8,
     # Go
-    "go.mod",
-    # Java (Maven / Gradle)
-    "pom.xml", "build.gradle", "build.gradle.kts", "gradlew", "mvnw",
+    "go.mod":              8,
+    # Java
+    "pom.xml":             8,
+    "build.gradle":        7,
+    "build.gradle.kts":    7,
+    "gradlew":             5,
+    "mvnw":                5,
     # C / C++
-    "Makefile", "CMakeLists.txt",
+    "CMakeLists.txt":      6,
+    "Makefile":            3,   # alone is not enough (many non-code Makefiles)
     # Ruby
-    "Gemfile",
+    "Gemfile":             7,
     # PHP
-    "composer.json",
-    # Docker
-    "Dockerfile", "docker-compose.yml", "docker-compose.yaml",
-})
+    "composer.json":       7,
+    # Docker / Infra
+    "Dockerfile":          5,
+    "docker-compose.yml":  4,
+    "docker-compose.yaml": 4,
+}
 
-# File *suffixes* (no dot) that also signal a project root.
-_PROJECT_SUFFIXES: frozenset[str] = frozenset({
-    "sln",       # .NET solution
-    "csproj",    # .NET project
-    "xcodeproj", # Xcode
-})
+#: Minimum cumulative score to classify a folder as a code project.
+PROJECT_THRESHOLD: int = 5
+
+# File *suffix* weights (extension without dot).
+_SUFFIX_WEIGHTS: dict[str, int] = {
+    "sln":       8,   # .NET solution
+    "csproj":    7,   # .NET project
+    "xcodeproj": 7,   # Xcode project
+    "podspec":   6,   # CocoaPods
+    "cabal":     6,   # Haskell
+    "gemspec":   6,   # Ruby gem spec
+}
 
 
-def is_code_project(folder: Path) -> bool:
-    """Return ``True`` if *folder* looks like a code project root.
+def project_confidence(folder: Path) -> int:
+    """Return the confidence score for *folder* being a code project root.
 
-    Only the **direct children** of *folder* are inspected (no deep scan).
-    A folder qualifies when it contains at least one recognised marker file
-    or directory (e.g. ``.git``, ``package.json``, ``requirements.txt``).
+    Only direct children are inspected (no deep scan).  Scores accumulate
+    up to ``PROJECT_THRESHOLD``; iteration stops as soon as the threshold
+    is reached for performance on large directories.
 
     Args:
         folder: Directory to inspect.
 
     Returns:
-        ``True`` if a project marker is found, ``False`` otherwise.
+        An integer score.  A score ≥ ``PROJECT_THRESHOLD`` means the folder
+        should be treated as a code project.
     """
+    score = 0
     try:
         for item in folder.iterdir():
-            if item.name in PROJECT_MARKERS:
-                return True
-            if item.suffix.lstrip(".").lower() in _PROJECT_SUFFIXES:
-                return True
+            score += MARKER_WEIGHTS.get(item.name, 0)
+            score += _SUFFIX_WEIGHTS.get(item.suffix.lstrip(".").lower(), 0)
+            if score >= PROJECT_THRESHOLD:
+                return score        # early exit — no need to scan further
     except PermissionError:
         pass
-    return False
+    return score
+
+
+def is_code_project(folder: Path) -> bool:
+    """Return ``True`` if *folder* looks like a code project root.
+
+    Delegates to :func:`project_confidence`.  A folder qualifies when its
+    combined marker score reaches :data:`PROJECT_THRESHOLD`.
+
+    Args:
+        folder: Directory to inspect.
+
+    Returns:
+        ``True`` if the confidence score meets the threshold.
+    """
+    return project_confidence(folder) >= PROJECT_THRESHOLD
 
 
 def get_category(file_path: Path) -> str:

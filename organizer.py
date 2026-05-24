@@ -21,6 +21,10 @@ from utils import get_category, is_code_project, safe_destination
 
 logger = logging.getLogger(__name__)
 
+# Absolute path of this file's directory — used to prevent the organiser
+# from accidentally treating its own folder as a source item.
+_SELF_DIR: Path = Path(__file__).resolve().parent
+
 # How many bytes we read at a time when computing MD5 hashes.
 # 64 KB is a sweet spot: small enough to keep memory low, large enough to
 # avoid excessive system-call overhead.
@@ -156,6 +160,12 @@ class FileOrganizer:
                 continue
             except ValueError:
                 pass
+
+            # Never move the organiser's own directory if it happens to live
+            # inside the source tree (e.g. --source ~/Desktop).
+            if item.resolve() == _SELF_DIR:
+                logger.info("Skipping organiser directory: %s", item)
+                continue
 
             if item.is_dir():
                 if is_code_project(item):

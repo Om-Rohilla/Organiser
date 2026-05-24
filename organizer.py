@@ -193,6 +193,8 @@ class FileOrganizer:
             A mapping of ``md5_hex → [file_path, ...]``.
             Groups with more than one path are duplicates.
         """
+        if not files:
+            return {}
         logger.info("Hashing %d file(s) using multiprocessing …", len(files))
         hash_map: dict[str, list[Path]] = {}
 

@@ -14,7 +14,8 @@ Design decisions:
 import hashlib
 import logging
 import shutil
-from concurrent.futures import ProcessPoolExecutor, as_completed
+import threading
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from utils import get_category, is_code_project, safe_destination
@@ -301,42 +302,69 @@ class FileOrganizer:
     def _move_files(
         self, files: list[Path], duplicates: set[Path]
     ) -> None:
-        """Move every non-duplicate file to the appropriate category folder."""
-        for file_path in files:
+        """Move every non-duplicate file to the appropriate category folder.
+
+        Uses a ``ThreadPoolExecutor`` so multiple moves run in parallel.
+        Thread safety is achieved via ``_stats_lock`` (for stat counters)
+        and ``_dest_lock`` (for the safe_destination check-and-move pair).
+        This is most beneficial for cross-device moves where the OS copies
+        data; for same-filesystem renames the improvement is still visible
+        because directory-entry creation can overlap with I/O.
+        """
+        _stats_lock = threading.Lock()
+        _dest_lock  = threading.Lock()
+
+        def _move_one(file_path: Path) -> None:
             if file_path in duplicates:
-                self.stats["skipped"] += 1
-                continue
+                with _stats_lock:
+                    self.stats["skipped"] += 1
+                return
 
-            category = get_category(file_path)
+            category    = get_category(file_path)
             category_dir = self.destination / category
-
             self._ensure_dir(category_dir)
 
-            target = safe_destination(category_dir, file_path)
+            # Lock around safe_destination + shutil.move so two threads
+            # can't both claim the same target path simultaneously.
+            with _dest_lock:
+                target = safe_destination(category_dir, file_path)
 
-            if self.dry_run:
-                logger.info("[DRY-RUN] Would move: %s → %s", file_path, target)
-                if self._on_move:
-                    self._on_move(file_path, target)
-                self.stats["moved"] += 1
-                continue
+                if self.dry_run:
+                    logger.info("[DRY-RUN] Would move: %s → %s", file_path, target)
+                    with _stats_lock:
+                        self.stats["moved"] += 1
+                    if self._on_move:
+                        self._on_move(file_path, target)
+                    return
 
-            try:
-                shutil.move(str(file_path), str(target))
-                logger.info("Moved: %s → %s", file_path, target)
-                if self._on_move:
-                    self._on_move(file_path, target)
+                try:
+                    shutil.move(str(file_path), str(target))
+                except PermissionError as exc:
+                    logger.error("Permission denied moving %s: %s", file_path, exc)
+                    with _stats_lock:
+                        self.stats["errors"] += 1
+                    if self._on_error:
+                        self._on_error(file_path, exc)
+                    return
+                except OSError as exc:
+                    logger.error("Error moving %s: %s", file_path, exc)
+                    with _stats_lock:
+                        self.stats["errors"] += 1
+                    if self._on_error:
+                        self._on_error(file_path, exc)
+                    return
+
+            logger.info("Moved: %s → %s", file_path, target)
+            with _stats_lock:
                 self.stats["moved"] += 1
-            except PermissionError as exc:
-                logger.error("Permission denied moving %s: %s", file_path, exc)
-                if self._on_error:
-                    self._on_error(file_path, exc)
-                self.stats["errors"] += 1
-            except OSError as exc:
-                logger.error("Error moving %s: %s", file_path, exc)
-                if self._on_error:
-                    self._on_error(file_path, exc)
-                self.stats["errors"] += 1
+            if self._on_move:
+                self._on_move(file_path, target)
+
+        # I/O-bound → threads (not processes). Use same worker count as hashing.
+        max_workers = self.workers or min(32, len(files) or 1)
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            # list() forces iteration so exceptions surface immediately
+            list(pool.map(_move_one, files))
 
     # ------------------------------------------------------------------
     # Helpers

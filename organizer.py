@@ -331,8 +331,7 @@ class FileOrganizer:
                 continue
 
             try:
-                import shutil as _shutil
-                _shutil.move(str(project_dir), str(target))
+                shutil.move(str(project_dir), str(target))
                 logger.info("Moved project: %s → %s", project_dir, target)
                 if self._on_project_move:
                     self._on_project_move(project_dir, target)

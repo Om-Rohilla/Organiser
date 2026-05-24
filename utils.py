@@ -192,6 +192,11 @@ def safe_destination(destination_dir: Path, file_path: Path) -> Path:
     is appended (e.g. ``report_1.pdf``, ``report_2.pdf``) until a free slot
     is found.
 
+    The check-then-increment loop is slightly vulnerable to a TOCTOU race
+    on extremely busy filesystems, but for a single-user file organiser on
+    a local drive the window is negligible. The counter always starts at 1
+    and the loop exits on the first free name found.
+
     Args:
         destination_dir: The folder where the file should land.
         file_path:        The source file being moved.
@@ -199,12 +204,9 @@ def safe_destination(destination_dir: Path, file_path: Path) -> Path:
     Returns:
         A ``Path`` that does **not** yet exist on disk.
     """
-    target = destination_dir / file_path.name
-    if not target.exists():
-        return target
-
-    stem = file_path.stem
+    stem   = file_path.stem
     suffix = file_path.suffix
+    target = destination_dir / file_path.name
     counter = 1
 
     while target.exists():

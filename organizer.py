@@ -28,6 +28,31 @@ logger = logging.getLogger(__name__)
 # from accidentally treating its own folder as a source item.
 _SELF_DIR: Path = Path(__file__).resolve().parent
 
+# Directories that should NEVER be recursed into.
+# These are dependency caches, build artefacts, and VCS internals that
+# contain thousands of files users almost certainly do not want organised.
+EXCLUDED_DIRS: frozenset[str] = frozenset({
+    # JavaScript / Node
+    "node_modules",
+    ".npm",
+    ".yarn",
+    # Python
+    ".venv", "venv", "env", ".env",
+    "__pycache__",
+    ".mypy_cache", ".pytest_cache", ".ruff_cache",
+    # Build output
+    "dist", "build", "out", ".next", ".nuxt", ".svelte-kit",
+    "target",       # Rust / Java / Scala
+    ".gradle",      # Gradle
+    "_site",        # Jekyll / static site generators
+    # Version control
+    ".git", ".hg", ".svn",
+    # IDE / editor
+    ".idea", ".vscode",
+    # macOS
+    ".DS_Store",
+})
+
 # How many bytes we read at a time when computing MD5 hashes.
 # 64 KB is a sweet spot: small enough to keep memory low, large enough to
 # avoid excessive system-call overhead.
@@ -206,9 +231,19 @@ class FileOrganizer:
                     project_roots.append(item)
                     self.stats["scanned"] += 1
                 else:
-                    # Regular folder — recurse and collect individual files.
+                    # Regular folder — recurse and collect individual files,
+                    # but never descend into dependency/build directories.
                     for path in item.rglob("*"):
-                        if path.is_symlink():   # skip symlinks — avoids infinite loops
+                        if path.is_symlink():
+                            continue
+                        # Prune excluded directory subtrees in-place:
+                        # if any component of the path (relative to source)
+                        # is in EXCLUDED_DIRS, skip the whole subtree.
+                        try:
+                            rel_parts = path.relative_to(self.source).parts
+                        except ValueError:
+                            rel_parts = path.parts
+                        if any(part in EXCLUDED_DIRS for part in rel_parts):
                             continue
                         if not path.is_file():
                             continue

@@ -77,16 +77,17 @@ def parse_args() -> argparse.Namespace:
         epilog="""
 examples:
   python main.py --source ~/Downloads --dest ~/Organized
+  python main.py --source ~/Downloads --dest ~/Organized
   python main.py --source ~/Downloads --dest ~/Organized --dry-run
   python main.py --source ~/Downloads --dest ~/Organized --fresh
-  python main.py --source ~/Downloads --dest ~/Organized --undo
+  python main.py --undo
   python main.py --source ~/Downloads --dest ~/Organized --workers 4 --verbose
         """,
     )
-    parser.add_argument("--source",   required=True, type=Path, metavar="DIR",
-                        help="Directory to scan (searched recursively).")
-    parser.add_argument("--dest",     required=True, type=Path, metavar="DIR",
-                        help="Root directory where category folders will be created.")
+    parser.add_argument("--source",   required=False, type=Path, metavar="DIR", default=None,
+                        help="Directory to scan (searched recursively). Not needed with --undo.")
+    parser.add_argument("--dest",     required=False, type=Path, metavar="DIR", default=None,
+                        help="Root directory where category folders will be created. Not needed with --undo.")
     parser.add_argument("--dry-run",  action="store_true", default=False,
                         help="Show what would happen without moving any files.")
     parser.add_argument("--workers",  type=int, default=None, metavar="N",
@@ -105,16 +106,25 @@ examples:
 
 
 def validate_args(args: argparse.Namespace) -> None:
-    if not args.undo:   # --undo doesn't need a valid source
-        if not args.source.exists():
-            ui.console.print(f"[error]✗  Source does not exist:[/] {args.source}")
-            sys.exit(1)
-        if not args.source.is_dir():
-            ui.console.print(f"[error]✗  Source is not a directory:[/] {args.source}")
-            sys.exit(1)
+    if args.undo:
+        return   # --undo doesn't need --source or --dest
+
+    # For all other modes, --source and --dest are required
+    if args.source is None or args.dest is None:
+        ui.console.print("[error]✗  --source and --dest are required (unless using --undo)[/]")
+        ui.console.print("  Example: [bold].venv/bin/python3 main.py --source ~/Downloads --dest ~/Organized[/]")
+        sys.exit(1)
+
+    if not args.source.exists():
+        ui.console.print(f"[error]✗  Source does not exist:[/] {args.source}")
+        sys.exit(1)
+    if not args.source.is_dir():
+        ui.console.print(f"[error]✗  Source is not a directory:[/] {args.source}")
+        sys.exit(1)
     if args.workers is not None and args.workers < 1:
         ui.console.print("[error]✗  --workers must be a positive integer.[/]")
         sys.exit(1)
+
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
@@ -124,11 +134,11 @@ def main() -> None:
     setup_logging(verbose=args.verbose)
     validate_args(args)
 
-    journal_path  = Path(__file__).resolve().parent / JOURNAL_FILENAME
-    dest_resolved = args.dest.resolve()
+    journal_path = Path(__file__).resolve().parent / JOURNAL_FILENAME
 
     # ── 0a. --undo: reverse last run ─────────────────────────────────────────
     if args.undo:
+
         ui.print_banner()
         ui.console.print("  [warning]⚠  UNDO mode — reversing last run[/]\n")
         if not journal_path.exists():
@@ -152,7 +162,9 @@ def main() -> None:
         return
 
     # ── 0b. --fresh: safely back up existing destination ─────────────────────
+    dest_resolved = args.dest.resolve()
     if args.fresh and dest_resolved.exists():
+
         timestamp   = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         backup_path = dest_resolved.parent / f"{dest_resolved.name}_backup_{timestamp}"
         ui.print_banner()

@@ -1,2 +1,1 @@
-pytest
-rich>=13.0
+rich\nxxhash

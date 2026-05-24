@@ -33,14 +33,28 @@ _HASH_CHUNK_SIZE = 65_536
 
 
 # ---------------------------------------------------------------------------
-# MD5 hashing (runs in worker processes)
+# File hashing (runs in worker processes)
 # ---------------------------------------------------------------------------
+# We prefer xxHash (xxh3_128) over MD5 for two reasons:
+#   1. Speed — xxHash runs at ~4-10 GB/s vs ~500 MB/s for MD5
+#   2. No false cryptographic security needed — this is dedup, not auth
+#
+# If xxhash is not installed we silently fall back to MD5 so the tool
+# keeps working without any extra installation step.
 
-def compute_md5(file_path: Path) -> tuple[Path, str | None]:
-    """Compute the MD5 hash of *file_path*.
+try:
+    import xxhash as _xxhash
+    _USE_XXHASH = True
+except ImportError:
+    _USE_XXHASH = False
 
-    This function is designed to be called from a worker process, so it
-    must be importable at the top level (no lambdas or nested functions).
+
+def compute_hash(file_path: Path) -> tuple[Path, str | None]:
+    """Compute a fast content hash of *file_path* for deduplication.
+
+    Uses xxHash (xxh3_128) when available, falls back to MD5 otherwise.
+    This function runs in a worker process and must be importable at the
+    top level (no lambdas or closures).
 
     Args:
         file_path: The file to hash.
@@ -49,15 +63,27 @@ def compute_md5(file_path: Path) -> tuple[Path, str | None]:
         A ``(file_path, hex_digest)`` tuple.  The digest is ``None`` when the
         file cannot be read (permission error, locked file, etc.).
     """
-    hasher = hashlib.md5()
     try:
         with file_path.open("rb") as fh:
-            while chunk := fh.read(_HASH_CHUNK_SIZE):
-                hasher.update(chunk)
-        return file_path, hasher.hexdigest()
+            if _USE_XXHASH:
+                h = _xxhash.xxh3_128()
+                while chunk := fh.read(_HASH_CHUNK_SIZE):
+                    h.update(chunk)
+                return file_path, h.hexdigest()
+            else:
+                import hashlib
+                h = hashlib.md5()
+                while chunk := fh.read(_HASH_CHUNK_SIZE):
+                    h.update(chunk)
+                return file_path, h.hexdigest()
     except OSError as exc:
         logger.warning("Cannot hash %s: %s", file_path, exc)
         return file_path, None
+
+
+# Keep compute_md5 as a public alias so existing tests and external
+# callers that import it directly continue to work unchanged.
+compute_md5 = compute_hash
 
 
 # ---------------------------------------------------------------------------
@@ -211,7 +237,7 @@ class FileOrganizer:
         hash_map: dict[str, list[Path]] = {}
 
         with ProcessPoolExecutor(max_workers=self.workers) as pool:
-            futures = {pool.submit(compute_md5, f): f for f in files}
+            futures = {pool.submit(compute_hash, f): f for f in files}
 
             for future in as_completed(futures):
                 file_path, digest = future.result()

@@ -7,12 +7,11 @@ your real filesystem.
 Run with:  pytest tests/
 """
 
-import hashlib
 from pathlib import Path
 
 import pytest
 
-from organizer import FileOrganizer, compute_md5
+from organizer import FileOrganizer, compute_md5, compute_hash
 
 
 # ---------------------------------------------------------------------------
@@ -34,25 +33,29 @@ class TestComputeMd5:
     """Unit tests for the free function compute_md5()."""
 
     def test_returns_correct_hash(self, tmp_path: Path) -> None:
+        """Hash must be deterministic — same content → same digest."""
         content = b"deterministic content"
-        f = make_file(tmp_path, "sample.txt", content)
+        f1 = make_file(tmp_path, "sample1.txt", content)
+        f2 = make_file(tmp_path, "sample2.txt", content)
 
-        expected = hashlib.md5(content).hexdigest()
-        _, digest = compute_md5(f)
+        _, digest1 = compute_hash(f1)
+        _, digest2 = compute_hash(f2)
 
-        assert digest == expected
+        # Both files have the same bytes → digests must match
+        assert digest1 is not None
+        assert digest1 == digest2
 
     def test_returns_none_for_missing_file(self, tmp_path: Path) -> None:
         ghost = tmp_path / "ghost.txt"  # does not exist
-        _, digest = compute_md5(ghost)
+        _, digest = compute_hash(ghost)
         assert digest is None
 
     def test_different_content_gives_different_hash(self, tmp_path: Path) -> None:
         a = make_file(tmp_path, "a.txt", b"aaa")
         b = make_file(tmp_path, "b.txt", b"bbb")
 
-        _, digest_a = compute_md5(a)
-        _, digest_b = compute_md5(b)
+        _, digest_a = compute_hash(a)
+        _, digest_b = compute_hash(b)
 
         assert digest_a != digest_b
 

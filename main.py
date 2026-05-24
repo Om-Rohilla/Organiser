@@ -45,7 +45,7 @@ def setup_logging(verbose: bool) -> None:
         rich_tracebacks=True,
         markup=True,
     )
-    rich_handler.setLevel(logging.WARNING)
+    rich_handler.setLevel(logging.DEBUG if verbose else logging.WARNING)
     root.addHandler(rich_handler)
 
     # Plain file handler — always full detail

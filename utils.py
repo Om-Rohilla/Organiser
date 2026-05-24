@@ -73,24 +73,44 @@ EXTENSION_MAP: dict[str, str] = {
     "py": "Code",
     "js": "Code",
     "ts": "Code",
+    "jsx": "Code",      # React / JSX
+    "tsx": "Code",      # React + TypeScript
+    "vue": "Code",      # Vue.js
+    "svelte": "Code",   # Svelte
     "html": "Code",
     "css": "Code",
+    "scss": "Code",     # Sass
+    "sass": "Code",
+    "less": "Code",
     "json": "Code",
     "yaml": "Code",
     "yml": "Code",
     "toml": "Code",
     "sh": "Code",
     "bash": "Code",
+    "zsh": "Code",
+    "fish": "Code",
     "c": "Code",
     "cpp": "Code",
+    "cc": "Code",
     "h": "Code",
+    "hpp": "Code",
     "java": "Code",
+    "kt": "Code",       # Kotlin
+    "kts": "Code",
+    "swift": "Code",    # Swift
+    "dart": "Code",     # Flutter / Dart
     "go": "Code",
     "rs": "Code",
     "rb": "Code",
     "php": "Code",
     "sql": "Code",
     "xml": "Code",
+    "gitignore": "Code",    # common config files
+    "env": "Code",
+    "lock": "Code",
+    "dockerfile": "Code",
+    "makefile": "Code",
     # Executables / binaries
     "exe": "Executables",
     "msi": "Executables",

@@ -20,6 +20,7 @@ from pathlib import Path
 
 from utils import get_category, is_code_project, safe_destination
 from protocols import OnDuplicate, OnError, OnHashed, OnMove, OnProjectMove
+from journal import MoveJournal
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +125,9 @@ class FileOrganizer:
             "errors": 0,
             "projects": 0,    # whole project folders moved
         }
+
+        # Optional move journal for --undo support (set by main.py)
+        self.journal: MoveJournal | None = None
 
         # Optional UI callbacks — set by main.py to drive the Rich display.
         # Typed with Protocol classes from protocols.py for full IDE + mypy support.
@@ -357,6 +361,8 @@ class FileOrganizer:
             logger.info("Moved: %s → %s", file_path, target)
             with _stats_lock:
                 self.stats["moved"] += 1
+                if self.journal:
+                    self.journal.record_file(file_path, target)
             if self._on_move:
                 self._on_move(file_path, target)
 
@@ -403,6 +409,8 @@ class FileOrganizer:
             try:
                 shutil.move(str(project_dir), str(target))
                 logger.info("Moved project: %s → %s", project_dir, target)
+                if self.journal:
+                    self.journal.record_project(project_dir, target)
                 if self._on_project_move:
                     self._on_project_move(project_dir, target)
                 self.stats["moved"] += 1

@@ -16,6 +16,7 @@ from rich.logging import RichHandler
 
 import ui
 from config import apply_config_to_extension_map, apply_config_to_marker_weights, find_config_file, load_config
+from journal import MoveJournal, JOURNAL_FILENAME
 from organizer import FileOrganizer
 
 
@@ -86,6 +87,8 @@ examples:
                         help="Parallel hashing processes (default: all CPU cores).")
     parser.add_argument("--verbose",  action="store_true", default=False,
                         help="Print DEBUG-level messages to the console.")
+    parser.add_argument("--undo",     action="store_true", default=False,
+                        help="Reverse the last run using the saved journal file.")
     return parser.parse_args()
 
 
@@ -107,6 +110,25 @@ def main() -> None:
     args = parse_args()
     setup_logging(verbose=args.verbose)
     validate_args(args)
+
+    # ── 0. Handle --undo before doing anything else ─────────────────────────
+    journal_path = Path(__file__).resolve().parent / JOURNAL_FILENAME
+    if args.undo:
+        ui.print_banner()
+        ui.console.print(f"  [warning]⚠  UNDO mode — reversing last run[/]\n")
+        if not journal_path.exists():
+            ui.console.print(f"  [error]✗  No journal found at:[/] [path]{journal_path}[/]")
+            ui.console.print("  Run a normal (non-dry-run) pass first to create a journal.")
+            sys.exit(1)
+        try:
+            ok, fail = MoveJournal.undo(journal_path)
+            ui.console.print(f"  [success]✔  Undo complete:[/] {ok} restored, {fail} failed")
+            if ok > 0:
+                journal_path.unlink(missing_ok=True)   # clear journal after successful undo
+        except Exception as exc:
+            ui.console.print(f"  [error]✗  Undo failed:[/] {exc}")
+            sys.exit(1)
+        return
 
     # ── 1. Banner + config ────────────────────────────────────────────────────
     ui.print_banner()
@@ -142,6 +164,10 @@ def main() -> None:
     organizer._on_project_move = lambda d, dst:   ui.log_project_move(d, dst, args.dry_run)
     organizer._on_duplicate    = lambda path:      ui.log_duplicate(path)
     organizer._on_error        = lambda path, exc: ui.log_error(path, exc)
+
+    # Wire journal (skipped in dry-run — nothing real to undo)
+    if not args.dry_run:
+        organizer.journal = MoveJournal(journal_path, dry_run=False)
 
     # ── 4. Collect files + detect code projects ─────────────────────────────
     files, project_roots = organizer._collect_files_and_projects()
@@ -179,7 +205,12 @@ def main() -> None:
         ui.console.print()
         organizer._move_projects(project_roots)
 
-    # ── 9. Rich summary + log footer ──────────────────────────────────────────
+    # ── 9. Save journal + Rich summary + log footer ───────────────────────────
+    if organizer.journal and organizer.journal.op_count > 0:
+        organizer.journal.save()
+        ui.console.print(
+            f"  [muted]↩  To undo this run:[/] [path]python main.py --undo[/]\n"
+        )
     ui.print_summary(organizer.stats, args.dry_run)
     logging.getLogger(__name__).info("Log saved to: %s", LOG_FILE)
 

@@ -20,7 +20,10 @@ from organizer import FileOrganizer
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
-LOG_FILE = "organizer.log"
+# Always write the log file next to main.py, regardless of where the
+# user runs the command from. Using CWD caused the log to be "lost" when
+# running from a different directory.
+LOG_FILE = Path(__file__).resolve().parent / "organizer.log"
 
 
 def setup_logging(verbose: bool) -> None:

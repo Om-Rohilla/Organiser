@@ -18,6 +18,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 from utils import get_category, is_code_project, safe_destination
+from protocols import OnDuplicate, OnError, OnHashed, OnMove, OnProjectMove
 
 logger = logging.getLogger(__name__)
 
@@ -98,12 +99,13 @@ class FileOrganizer:
         }
 
         # Optional UI callbacks — set by main.py to drive the Rich display.
+        # Typed with Protocol classes from protocols.py for full IDE + mypy support.
         # Keeping them None by default means the organizer works without any UI.
-        self._on_hashed: "callable | None" = None       # () after each file hashed
-        self._on_move: "callable | None" = None         # (src, dst) after a file move
-        self._on_project_move: "callable | None" = None # (dir, dst) project folder moved
-        self._on_duplicate: "callable | None" = None    # (path) when dupe skipped
-        self._on_error: "callable | None" = None        # (path, exc) on error
+        self._on_hashed:       OnHashed | None      = None  # () after each file hashed
+        self._on_move:         OnMove | None         = None  # (src, dst) file moved
+        self._on_project_move: OnProjectMove | None  = None  # (dir, dst) project moved
+        self._on_duplicate:    OnDuplicate | None    = None  # (path) dupe skipped
+        self._on_error:        OnError | None        = None  # (path, exc) on error
 
     # ------------------------------------------------------------------
     # Public interface

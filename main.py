@@ -11,7 +11,9 @@ Run with:
 
 import argparse
 import logging
+import os
 import secrets
+import signal
 import shutil
 import sys
 from datetime import datetime, timezone
@@ -187,6 +189,22 @@ def main() -> None:
     validate_args(args)
 
     journal_path = Path(__file__).resolve().parent / JOURNAL_FILENAME
+
+    # ── Register signal handler to clean up orphaned temp files ──────────────
+    # If the process is killed (Ctrl-C or SIGTERM) during the atomic
+    # journal write, a .tmp file is left behind in the project directory.
+    # This handler removes any such orphans so the next run starts clean.
+    def _cleanup_signal_handler(signum: int, frame: object) -> None:
+        proj_dir = Path(__file__).resolve().parent
+        for tmp in proj_dir.glob("*.tmp"):
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+        sys.exit(128 + signum)   # standard exit code convention for signals
+
+    signal.signal(signal.SIGINT,  _cleanup_signal_handler)
+    signal.signal(signal.SIGTERM, _cleanup_signal_handler)
 
     # ── 0a. --undo: reverse last run ─────────────────────────────────────────
     if args.undo:

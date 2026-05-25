@@ -112,6 +112,19 @@ def load_config() -> dict:
         logger.warning("Could not parse %s: %s — using defaults.", path, exc)
         return cfg
 
+    # ── Security: warn if config is writable by group/others ─────────────────
+    try:
+        mode = path.stat().st_mode & 0o777
+        if mode & 0o022:   # group-write (0o020) or world-write (0o002)
+            logger.warning(
+                "Security warning: %s is writable by group/others (mode %04o). "
+                "A malicious user could inject harmful categories or markers. "
+                "Run: chmod 644 %s",
+                path, mode, path,
+            )
+    except OSError:
+        pass
+
     # Shallow-merge each section
     for section in ("behavior", "categories", "project_markers"):
         if section in user_cfg:

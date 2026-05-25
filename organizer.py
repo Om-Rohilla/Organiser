@@ -268,6 +268,11 @@ class FileOrganizer:
                 files.append(item)
                 self.stats["scanned"] += 1
 
+        # ── Security: enforce the file-count limit after full collection ───
+        # check_file_count was imported but never called — the safety net
+        # was decorative. This call is the actual enforcement point.
+        check_file_count(len(files))
+
         return files, project_roots
 
     # ------------------------------------------------------------------

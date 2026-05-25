@@ -63,9 +63,14 @@ def _get_or_create_hmac_key() -> bytes:
     The key is 32 bytes of ``os.urandom`` data stored in the project
     directory.  It is never transmitted anywhere — it only protects
     against local tampering of the journal file.
+
+    Permissions are re-enforced to 0o600 on every read, not just creation,
+    so that accidental ``chmod 644 .journal_key`` is silently corrected.
     """
     if _HMAC_KEY_FILE.exists():
         try:
+            # Re-enforce permissions every read — not just on creation.
+            os.chmod(_HMAC_KEY_FILE, 0o600)
             raw = _HMAC_KEY_FILE.read_bytes()
             if len(raw) == 32:
                 return raw

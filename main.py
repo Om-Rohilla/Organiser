@@ -63,6 +63,13 @@ def setup_logging(verbose: bool) -> None:
     file_handler.setFormatter(fmt)
     root.addHandler(file_handler)
 
+    # Restrict log file to owner read/write only (0o600).
+    # The log contains full file paths which are private information.
+    try:
+        os.chmod(LOG_FILE, 0o600)
+    except OSError:
+        pass   # non-fatal — best effort
+
 
 # ── CLI args ──────────────────────────────────────────────────────────────────
 

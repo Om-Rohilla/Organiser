@@ -26,3 +26,16 @@ build/
 
 # pytest cache
 .pytest_cache/
+
+# ── Security-sensitive runtime files ─────────────────────────────────────────
+# NEVER commit these — doing so would compromise the security guarantees.
+
+# HMAC signing key for journal integrity — 32 bytes of os.urandom.
+# If committed, anyone with repo access can forge journal signatures.
+.journal_key
+
+# Atomic temp files from journal write (left behind if process is killed).
+*.tmp
+
+# The journal itself contains full filesystem paths — treat as private.
+organiser_journal.json

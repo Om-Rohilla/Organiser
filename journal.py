@@ -172,6 +172,18 @@ class MoveJournal:
                 failed += 1
                 continue
 
+            # Undo confinement: src and dst must share the same top-level
+            # parent directory. This prevents a tampered journal from using
+            # --undo to relocate arbitrary system files.
+            # e.g. journal dst=/etc/crontab → undo would move it somewhere.
+            if src.resolve().parts[:3] != dst.resolve().parts[:3]:
+                logger.error(
+                    "Undo blocked — src and dst are in different filesystem roots: "
+                    "src=%s dst=%s", src, dst
+                )
+                failed += 1
+                continue
+
             if not dst.exists():
                 logger.warning(
                     "Undo skip — destination no longer exists: %s", dst

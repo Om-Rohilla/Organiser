@@ -137,6 +137,14 @@ def validate_args(args: argparse.Namespace) -> None:
         ui.console.print("[error]✗  --source and --dest must be different directories.[/]")
         sys.exit(1)
 
+    # ── Security: block known dangerous system directories as --dest ───
+    from security import assert_safe_destination
+    try:
+        assert_safe_destination(args.dest)
+    except SecurityError as exc:
+        ui.console.print(f"[error]✗  {exc}[/]")
+        sys.exit(2)
+
     if args.workers is not None and args.workers < 1:
         ui.console.print("[error]✗  --workers must be a positive integer.[/]")
         sys.exit(1)

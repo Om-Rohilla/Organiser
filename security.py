@@ -254,7 +254,42 @@ def check_workers_count(workers: int) -> None:
         )
 
 
+# ── Dangerous destination blocklist ───────────────────────────────────────────
+
+# Absolute paths that must NEVER be used as --dest.
+_BLOCKED_DESTINATIONS: frozenset[Path] = frozenset({
+    Path("/"),
+    Path("/usr"), Path("/usr/local"), Path("/usr/bin"),
+    Path("/bin"), Path("/sbin"),
+    Path("/etc"), Path("/var"), Path("/lib"), Path("/lib64"),
+    Path("/sys"), Path("/proc"), Path("/dev"), Path("/boot"),
+    Path("/root"),
+    Path.home(),              # ~ root itself is too broad
+    Path.home() / "Desktop",  # Desktop root (organiser lives here)
+})
+
+
+def assert_safe_destination(dest: Path) -> None:
+    """Raise ``SecurityError`` if *dest* resolves to a protected system directory.
+
+    Prevents catastrophic operations like ``--dest /`` or ``--dest /etc``
+    that would scatter files across the OS filesystem.
+    """
+    resolved = dest.resolve()
+    for blocked in _BLOCKED_DESTINATIONS:
+        try:
+            blocked_resolved = blocked.resolve()
+        except OSError:
+            continue
+        if resolved == blocked_resolved:
+            raise SecurityError(
+                f"Destination '{resolved}' is a protected system/home directory.\n"
+                "  Choose a dedicated sub-directory like ~/Organized instead."
+            )
+
+
 # ── 6. Config value validation ────────────────────────────────────────────────
+
 
 _SAFE_CATEGORY_RE  = re.compile(r"^[\w\- ]{1,64}$")   # word chars, dash, space
 _SAFE_EXTENSION_RE = re.compile(r"^[a-z0-9]{1,20}$")  # lowercase alphanum only

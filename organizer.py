@@ -442,6 +442,21 @@ class FileOrganizer:
                         self._on_error(file_path, exc)
                     return
 
+                # ── Post-move integrity check ────────────────────────────
+                # shutil.move can silently succeed on the Python side but
+                # leave the destination absent in rare filesystem edge cases.
+                if not target.exists():
+                    exc = RuntimeError(
+                        f"Post-move integrity check failed: {target} not found "
+                        "after move. The file may have been lost."
+                    )
+                    logger.error(str(exc))
+                    with _stats_lock:
+                        self.stats["errors"] += 1
+                    if self._on_error:
+                        self._on_error(file_path, exc)
+                    return
+
             logger.info(
                 "Moved: %s → %s",
                 sanitise_log_value(str(file_path)),

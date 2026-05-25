@@ -11,9 +11,10 @@ Run with:
 
 import argparse
 import logging
+import secrets
 import shutil
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from rich.logging import RichHandler
@@ -206,8 +207,11 @@ def main() -> None:
     dest_resolved = args.dest.resolve()
     if args.fresh and dest_resolved.exists():
 
-        timestamp   = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        backup_path = dest_resolved.parent / f"{dest_resolved.name}_backup_{timestamp}"
+        # UTC timestamp + 6-char random hex — prevents same-second collision
+        # and prevents an attacker predicting/claiming the backup path name.
+        timestamp   = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
+        rand_suffix = secrets.token_hex(3)   # 6 chars, e.g. 'a3f91c'
+        backup_path = dest_resolved.parent / f"{dest_resolved.name}_backup_{timestamp}_{rand_suffix}"
         ui.print_banner()
         ui.console.print("  [warning]⚠  --fresh: existing destination detected[/]")
         ui.console.print(f"     Source : [path]{dest_resolved}[/]")

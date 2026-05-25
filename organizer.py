@@ -21,6 +21,15 @@ from pathlib import Path
 from utils import get_category, is_code_project, safe_destination
 from protocols import OnDuplicate, OnError, OnHashed, OnMove, OnProjectMove
 from journal import MoveJournal
+from security import (
+    SecurityError,
+    assert_safe_path,
+    assert_within_dest,
+    assert_not_symlink,
+    check_file_count,
+    check_path_depth,
+    sanitise_log_value,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -359,7 +368,20 @@ class FileOrganizer:
                     self.stats["skipped"] += 1
                 return
 
-            category    = get_category(file_path)
+            # ── Security: reject symlinks, traversal, depth ──────────────
+            try:
+                assert_not_symlink(file_path)
+                assert_safe_path(file_path, label="source file")
+                check_path_depth(file_path)
+            except SecurityError as sec_exc:
+                logger.error("Blocked (security): %s", sanitise_log_value(str(sec_exc)))
+                with _stats_lock:
+                    self.stats["errors"] += 1
+                if self._on_error:
+                    self._on_error(file_path, sec_exc)
+                return
+
+            category     = get_category(file_path)
             category_dir = self.destination / category
             self._ensure_dir(category_dir)
 
@@ -368,8 +390,27 @@ class FileOrganizer:
             with _dest_lock:
                 target = safe_destination(category_dir, file_path)
 
+                # ── Security: confirm target stays inside destination ────
+                try:
+                    assert_within_dest(target, self.destination)
+                except SecurityError as sec_exc:
+                    logger.error(
+                        "Destination escape blocked for %s: %s",
+                        sanitise_log_value(str(file_path)),
+                        sanitise_log_value(str(sec_exc)),
+                    )
+                    with _stats_lock:
+                        self.stats["errors"] += 1
+                    if self._on_error:
+                        self._on_error(file_path, sec_exc)
+                    return
+
                 if self.dry_run:
-                    logger.info("[DRY-RUN] Would move: %s → %s", file_path, target)
+                    logger.info(
+                        "[DRY-RUN] Would move: %s → %s",
+                        sanitise_log_value(str(file_path)),
+                        sanitise_log_value(str(target)),
+                    )
                     with _stats_lock:
                         self.stats["moved"] += 1
                     if self._on_move:
@@ -379,21 +420,31 @@ class FileOrganizer:
                 try:
                     shutil.move(str(file_path), str(target))
                 except PermissionError as exc:
-                    logger.error("Permission denied moving %s: %s", file_path, exc)
+                    logger.error(
+                        "Permission denied moving %s: %s",
+                        sanitise_log_value(str(file_path)), exc,
+                    )
                     with _stats_lock:
                         self.stats["errors"] += 1
                     if self._on_error:
                         self._on_error(file_path, exc)
                     return
                 except OSError as exc:
-                    logger.error("Error moving %s: %s", file_path, exc)
+                    logger.error(
+                        "Error moving %s: %s",
+                        sanitise_log_value(str(file_path)), exc,
+                    )
                     with _stats_lock:
                         self.stats["errors"] += 1
                     if self._on_error:
                         self._on_error(file_path, exc)
                     return
 
-            logger.info("Moved: %s → %s", file_path, target)
+            logger.info(
+                "Moved: %s → %s",
+                sanitise_log_value(str(file_path)),
+                sanitise_log_value(str(target)),
+            )
             with _stats_lock:
                 self.stats["moved"] += 1
                 if self.journal:
@@ -429,8 +480,34 @@ class FileOrganizer:
         self._ensure_dir(code_dir)
 
         for project_dir in project_roots:
+            # ── Security: check project dir before moving ────────────────
+            try:
+                assert_not_symlink(project_dir)
+                assert_safe_path(project_dir, label="project dir")
+            except SecurityError as sec_exc:
+                logger.error(
+                    "Project move blocked (security): %s",
+                    sanitise_log_value(str(sec_exc)),
+                )
+                self.stats["errors"] += 1
+                if self._on_error:
+                    self._on_error(project_dir, sec_exc)
+                continue
+
             target = safe_destination(code_dir, project_dir)
 
+            # ── Security: confirm project lands inside dest ───────────────
+            try:
+                assert_within_dest(target, self.destination)
+            except SecurityError as sec_exc:
+                logger.error(
+                    "Project destination escape blocked: %s",
+                    sanitise_log_value(str(sec_exc)),
+                )
+                self.stats["errors"] += 1
+                if self._on_error:
+                    self._on_error(project_dir, sec_exc)
+                continue
             if self.dry_run:
                 logger.info(
                     "[DRY-RUN] Would move project: %s → %s", project_dir, target

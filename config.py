@@ -127,22 +127,17 @@ def apply_config_to_extension_map(
 ) -> dict[str, str]:
     """Merge user-defined ``[categories]`` into *extension_map*.
 
-    The ``[categories]`` section maps category names to lists of extensions::
-
-        [categories]
-        CAD = ["dwg", "dxf"]
-
-    Each extension (lowercase, no dot) is added/overwritten in the map.
-
-    Args:
-        cfg:           Config dict returned by :func:`load_config`.
-        extension_map: The base ``EXTENSION_MAP`` from ``utils.py``.
-
-    Returns:
-        A new dict that is *extension_map* plus any user overrides.
+    Values are validated through :func:`security.validate_config_categories`
+    before being applied — malformed or injection-risk entries are dropped
+    with a warning.
     """
+    from security import validate_config_categories
+
     result = dict(extension_map)
-    for category, extensions in cfg.get("categories", {}).items():
+    raw_categories = cfg.get("categories", {})
+    safe_categories = validate_config_categories(raw_categories)
+
+    for category, extensions in safe_categories.items():
         for ext in extensions:
             result[ext.lower().lstrip(".")] = category
     return result
@@ -154,22 +149,13 @@ def apply_config_to_marker_weights(
 ) -> dict[str, int]:
     """Merge extra project markers from config into *marker_weights*.
 
-    The ``[project_markers]`` section supports an ``extra`` list::
-
-        [project_markers]
-        extra = ["Podfile", "pubspec.yaml"]
-
-    Each extra marker is given a weight of 5 (strong signal, but not
-    as definitive as ``.git`` which scores 10).
-
-    Args:
-        cfg:            Config dict returned by :func:`load_config`.
-        marker_weights: The base ``MARKER_WEIGHTS`` from ``utils.py``.
-
-    Returns:
-        A new dict with extra markers appended.
+    Values are validated through :func:`security.validate_config_markers`
+    before being applied.
     """
+    from security import validate_config_markers
+
     result = dict(marker_weights)
-    for marker in cfg.get("project_markers", {}).get("extra", []):
+    raw_markers = cfg.get("project_markers", {}).get("extra", [])
+    for marker in validate_config_markers(raw_markers):
         result.setdefault(marker, 5)
     return result

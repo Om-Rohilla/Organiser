@@ -83,7 +83,7 @@ examples:
   python main.py --undo
   python main.py --source ~/Downloads --dest ~/Organized --workers 4 --verbose
         """,
-    )
+    ) 
     parser.add_argument("--source",   required=False, type=Path, metavar="DIR", default=None,
                         help="Directory to scan (searched recursively). Not needed with --undo.")
     parser.add_argument("--dest",     required=False, type=Path, metavar="DIR", default=None,
@@ -106,6 +106,8 @@ examples:
 
 
 def validate_args(args: argparse.Namespace) -> None:
+    from security import SecurityError, assert_safe_path
+
     if args.undo:
         return   # --undo doesn't need --source or --dest
 
@@ -115,12 +117,26 @@ def validate_args(args: argparse.Namespace) -> None:
         ui.console.print("  Example: [bold].venv/bin/python3 main.py --source ~/Downloads --dest ~/Organized[/]")
         sys.exit(1)
 
+    # ── Security: path traversal guard ────────────────────────────────
+    for flag, val in (("--source", args.source), ("--dest", args.dest)):
+        try:
+            assert_safe_path(val, label=flag)
+        except SecurityError as exc:
+            ui.console.print(f"[error]✗  Security violation in {flag}:[/] {exc}")
+            sys.exit(2)
+
     if not args.source.exists():
         ui.console.print(f"[error]✗  Source does not exist:[/] {args.source}")
         sys.exit(1)
     if not args.source.is_dir():
         ui.console.print(f"[error]✗  Source is not a directory:[/] {args.source}")
         sys.exit(1)
+
+    # ── Security: source must not BE the destination ──────────────────
+    if args.source.resolve() == args.dest.resolve():
+        ui.console.print("[error]✗  --source and --dest must be different directories.[/]")
+        sys.exit(1)
+
     if args.workers is not None and args.workers < 1:
         ui.console.print("[error]✗  --workers must be a positive integer.[/]")
         sys.exit(1)

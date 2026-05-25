@@ -33,6 +33,13 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+from security import (
+    SecurityError,
+    sanitise_log_value,
+    sign_journal,
+    verify_journal_signature,
+)
+
 logger = logging.getLogger(__name__)
 
 #: Default journal filename placed next to organizer.log
@@ -91,6 +98,8 @@ class MoveJournal:
             "op_count":   len(self._ops),
             "ops":        self._ops,
         }
+        # Sign the journal before writing so tampering can be detected on undo.
+        data["hmac"] = sign_journal(dict(data))
 
         # Write to a temp file in the same directory, then rename atomically.
         parent = self._path.parent
@@ -102,10 +111,17 @@ class MoveJournal:
                 json.dump(data, fh, indent=2)
             os.replace(tmp_path, self._path)   # atomic on POSIX
         except Exception:
-            os.unlink(tmp_path)
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
             raise
 
-        logger.info("Journal saved to %s (%d operations)", self._path, len(self._ops))
+        logger.info(
+            "Journal saved to %s (%d operations)",
+            sanitise_log_value(str(self._path)),
+            len(self._ops),
+        )
 
     # ── Undo ──────────────────────────────────────────────────────────────────
 
@@ -128,6 +144,9 @@ class MoveJournal:
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
 
+        # Verify HMAC integrity before trusting any paths in the journal.
+        verify_journal_signature(data)
+
         version = data.get("version", 0)
         if version != _JOURNAL_VERSION:
             raise ValueError(
@@ -142,6 +161,16 @@ class MoveJournal:
         for op in reversed(ops):
             src = Path(op["src"])
             dst = Path(op["dst"])
+
+            # Validate paths before moving (guard against tampered journal)
+            try:
+                from security import assert_safe_path
+                assert_safe_path(src, label="journal src")
+                assert_safe_path(dst, label="journal dst")
+            except SecurityError as sec_exc:
+                logger.error("Undo blocked — security violation: %s", sec_exc)
+                failed += 1
+                continue
 
             if not dst.exists():
                 logger.warning(

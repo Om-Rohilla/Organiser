@@ -371,12 +371,21 @@ def main() -> None:
 
 if __name__ == "__main__":
     from security import SecurityError
+    import sys as _sys
+    from rich.console import Console as _Console
+
+    _con = _Console()
     try:
         main()
     except SecurityError as _sec_exc:
-        # Top-level catcher: any SecurityError that escaped an internal handler
-        # is printed clearly and exits with code 2 (security violation).
-        import sys as _sys
-        from rich.console import Console as _Console
-        _Console().print(f"\n[bold red]✗  SECURITY VIOLATION:[/bold red] {_sec_exc}\n")
+        # Any unhandled SecurityError → clear message, exit 2 (security violation).
+        _con.print(f"\n[bold red]✗  SECURITY VIOLATION:[/bold red] {_sec_exc}\n")
         _sys.exit(2)
+    except PermissionError as _perm_exc:
+        # PermissionError traceback leaks internal path structure — hide it.
+        _con.print(f"\n[bold red]✗  Permission denied:[/bold red] {_perm_exc}\n")
+        _sys.exit(1)
+    except KeyboardInterrupt:
+        # Ctrl-C: print a clean newline rather than the raw ^C or traceback.
+        _con.print("\n[yellow]⚠  Interrupted by user.[/yellow]")
+        _sys.exit(130)   # 128 + SIGINT(2)

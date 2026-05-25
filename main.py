@@ -370,4 +370,13 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    from security import SecurityError
+    try:
+        main()
+    except SecurityError as _sec_exc:
+        # Top-level catcher: any SecurityError that escaped an internal handler
+        # is printed clearly and exits with code 2 (security violation).
+        import sys as _sys
+        from rich.console import Console as _Console
+        _Console().print(f"\n[bold red]✗  SECURITY VIOLATION:[/bold red] {_sec_exc}\n")
+        _sys.exit(2)

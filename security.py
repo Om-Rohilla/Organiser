@@ -42,6 +42,11 @@ MAX_PATH_DEPTH    = 64
 #: Maximum individual filename length (bytes, not chars — POSIX allows 255).
 MAX_FILENAME_BYTES = 255
 
+#: Hard cap on --workers to prevent thread-exhaustion DoS.
+#: e.g. --workers 999999 would spin up nearly a million threads and OOM the machine.
+MAX_WORKERS = 64
+
+
 # ── 2. HMAC journal signing key ───────────────────────────────────────────────
 
 #: Name of the file that stores the per-installation HMAC key.
@@ -233,6 +238,19 @@ def check_path_depth(path: Path) -> None:
             f"Path depth {depth} exceeds limit {MAX_PATH_DEPTH}: {path}\n"
             "  Deeply nested paths are blocked as a precaution against "
             "recursive archive extraction attacks."
+        )
+
+
+def check_workers_count(workers: int) -> None:
+    """Raise ``SecurityError`` if *workers* exceeds ``MAX_WORKERS``.
+
+    Prevents thread-exhaustion DoS via e.g. ``--workers 999999`` which
+    would spawn nearly a million threads and cause an OOM crash.
+    """
+    if workers > MAX_WORKERS:
+        raise SecurityError(
+            f"--workers {workers} exceeds the safety limit of {MAX_WORKERS}.\n"
+            f"  Reduce to --workers {MAX_WORKERS} or lower."
         )
 
 

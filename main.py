@@ -141,6 +141,16 @@ def validate_args(args: argparse.Namespace) -> None:
         ui.console.print("[error]✗  --workers must be a positive integer.[/]")
         sys.exit(1)
 
+    # ── Security: cap worker threads to prevent OOM ───────────────────────────
+    from security import check_workers_count
+    if args.workers is not None:
+        try:
+            check_workers_count(args.workers)
+        except SecurityError as exc:
+            ui.console.print(f"[error]✗  {exc}[/]")
+            sys.exit(2)
+
+
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

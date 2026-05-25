@@ -246,6 +246,25 @@ def check_path_depth(path: Path) -> None:
         )
 
 
+#: Linux PATH_MAX = 4096 bytes. Windows MAX_PATH = 260 chars.
+#: We use 4096 as the universal safe cap.
+MAX_PATH_BYTES = 4096
+
+
+def check_total_path_length(path: Path) -> None:
+    """Raise ``SecurityError`` if the absolute path exceeds ``MAX_PATH_BYTES``.
+
+    The Linux kernel silently truncates or rejects paths longer than 4096
+    bytes (PATH_MAX). A maliciously long path can cause subtle I/O failures
+    that are very difficult to diagnose.
+    """
+    length = len(str(path.resolve()).encode("utf-8"))
+    if length > MAX_PATH_BYTES:
+        raise SecurityError(
+            f"Path length {length} bytes exceeds OS limit {MAX_PATH_BYTES}: {path}"
+        )
+
+
 def check_workers_count(workers: int) -> None:
     """Raise ``SecurityError`` if *workers* exceeds ``MAX_WORKERS``.
 

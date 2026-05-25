@@ -28,6 +28,7 @@ from security import (
     assert_not_symlink,
     check_file_count,
     check_path_depth,
+    check_total_path_length,
     sanitise_log_value,
 )
 
@@ -393,6 +394,7 @@ class FileOrganizer:
                 # ── Security: confirm target stays inside destination ────
                 try:
                     assert_within_dest(target, self.destination)
+                    check_total_path_length(target)
                 except SecurityError as sec_exc:
                     logger.error(
                         "Destination escape blocked for %s: %s",

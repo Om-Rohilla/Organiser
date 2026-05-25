@@ -153,6 +153,16 @@ def validate_args(args: argparse.Namespace) -> None:
         ui.console.print(f"[error]✗  {exc}[/]")
         sys.exit(2)
 
+    # ── Security: --dest itself must not be a symlink ──────────────────
+    # An attacker could pre-create ~/Organized as a symlink to /etc,
+    # causing all sorted files to land inside the system directory.
+    if args.dest.is_symlink():
+        ui.console.print(
+            f"[error]✗  --dest '{args.dest}' is a symbolic link. "
+            "Use the real target path directly.[/]"
+        )
+        sys.exit(2)
+
     if args.workers is not None and args.workers < 1:
         ui.console.print("[error]✗  --workers must be a positive integer.[/]")
         sys.exit(1)

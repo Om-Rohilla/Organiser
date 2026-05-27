@@ -114,8 +114,12 @@ def compute_hash(file_path: Path) -> tuple[Path, str | None]:
                     h.update(chunk)
                 return file_path, h.hexdigest()
     except OSError as exc:
-        logger.warning("Cannot hash %s: %s", file_path, exc)
+        # Sanitise the file path before logging — a filename containing
+        # newlines or control characters could inject false log entries.
+        from security import sanitise_log_value as _slv
+        logger.warning("Cannot hash %s: %s", _slv(str(file_path)), exc)
         return file_path, None
+
 
 
 # Keep compute_md5 as a public alias so existing tests and external

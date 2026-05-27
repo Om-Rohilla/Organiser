@@ -221,7 +221,20 @@ class FileOrganizer:
         files: list[Path] = []
         project_roots: list[Path] = []
 
-        for item in sorted(self.source.iterdir()):
+        # Guard the iterdir() call — if --source is unreadable (e.g. race
+        # condition between validate_args and the run, or chmod 000 by another
+        # process), this would crash with an unhandled PermissionError.
+        try:
+            source_items = sorted(self.source.iterdir())
+        except PermissionError as exc:
+            logger.error(
+                "Cannot read source directory %s: %s — aborting collection.",
+                sanitise_log_value(str(self.source)), exc,
+            )
+            return files, project_roots
+
+        for item in source_items:
+
             # Never touch anything already inside the destination tree.
             try:
                 item.relative_to(self.destination)

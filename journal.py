@@ -148,13 +148,23 @@ class MoveJournal:
         verify_journal_signature(data)
 
         version = data.get("version", 0)
-        if version != _JOURNAL_VERSION:
+        if not isinstance(version, int) or version != _JOURNAL_VERSION:
             raise ValueError(
-                f"Unsupported journal version {version} "
-                f"(expected {_JOURNAL_VERSION})"
+                f"Unsupported or invalid journal version '{version}' "
+                f"(expected integer {_JOURNAL_VERSION})"
             )
 
-        ops: list[dict] = data.get("ops", [])
+        ops = data.get("ops", [])
+        # CRITICAL: validate ops is a list before calling reversed().
+        # A tampered journal with "ops": null or "ops": "evil string"
+        # raises a TypeError from reversed() that bypasses ALL per-op
+        # security checks below and crashes the undo run entirely.
+        if not isinstance(ops, list):
+            raise ValueError(
+                f"Journal 'ops' field must be a list, got {type(ops).__name__!r}. "
+                "The journal file may be corrupted or tampered."
+            )
+
         succeeded = 0
         failed    = 0
 

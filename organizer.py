@@ -240,8 +240,12 @@ class FileOrganizer:
         for item in source_items:
 
             # Never touch anything already inside the destination tree.
+            # SECURITY: use .resolve() on item before relative_to() check.
+            # Without resolve(), a symlink at source/link → dest/Documents
+            # would NOT match because the unresolved path (source/link) doesn't
+            # start with the destination prefix — symlink bypass of this guard.
             try:
-                item.relative_to(self.destination)
+                item.resolve().relative_to(self.destination.resolve())
                 continue
             except ValueError:
                 pass
@@ -275,10 +279,11 @@ class FileOrganizer:
                         if not path.is_file():
                             continue
                         try:
-                            path.relative_to(self.destination)
+                            path.resolve().relative_to(self.destination.resolve())
                             continue
                         except ValueError:
                             pass
+
                         files.append(path)
                         self.stats["scanned"] += 1
             elif item.is_file():

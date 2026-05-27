@@ -598,14 +598,22 @@ class FileOrganizer:
                 self.stats["errors"] += 1
 
     def _ensure_dir(self, directory: Path) -> None:
-        """Create *directory* (and parents) if it does not exist."""
+        """Create *directory* (and parents) if it does not exist.
+
+        Directories are created with mode 0o700 (owner read/write/execute only).
+        The default ``mkdir`` mode of 0o777 is modified by the process umask, but
+        an explicit 0o700 ensures privacy even when umask is too permissive (e.g.
+        0o000 on some Docker containers), preventing other local users from listing
+        or reading the organised files.
+        """
         if directory.exists():
             return
         if self.dry_run:
             logger.info("[DRY-RUN] Would create directory: %s", directory)
             return
-        directory.mkdir(parents=True, exist_ok=True)
-        logger.info("Created directory: %s", directory)
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        logger.info("Created directory: %s", sanitise_log_value(str(directory)))
+
 
     def _log_summary(self) -> None:
         """Print a human-readable run summary to the log."""

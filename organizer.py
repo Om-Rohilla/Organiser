@@ -569,7 +569,11 @@ class FileOrganizer:
 
             try:
                 shutil.move(str(project_dir), str(target))
-                logger.info("Moved project: %s → %s", project_dir, target)
+                logger.info(
+                    "Moved project: %s → %s",
+                    sanitise_log_value(str(project_dir)),
+                    sanitise_log_value(str(target)),
+                )
                 if self.journal:
                     self.journal.record_project(project_dir, target)
                 if self._on_project_move:
@@ -578,14 +582,16 @@ class FileOrganizer:
                 self.stats["projects"] += 1
             except PermissionError as exc:
                 logger.error(
-                    "Permission denied moving project %s: %s", project_dir, exc
+                    "Permission denied moving project %s: %s",
+                    sanitise_log_value(str(project_dir)), exc,
                 )
                 if self._on_error:
                     self._on_error(project_dir, exc)
                 self.stats["errors"] += 1
             except OSError as exc:
                 logger.error(
-                    "Error moving project %s: %s", project_dir, exc
+                    "Error moving project %s: %s",
+                    sanitise_log_value(str(project_dir)), exc,
                 )
                 if self._on_error:
                     self._on_error(project_dir, exc)

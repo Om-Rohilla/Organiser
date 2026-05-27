@@ -197,10 +197,17 @@ class MoveJournal:
 
             try:
                 shutil.move(str(dst), str(src))
-                logger.info("Undone: %s → %s", dst, src)
+                logger.info(
+                    "Undone: %s → %s",
+                    sanitise_log_value(str(dst)),
+                    sanitise_log_value(str(src)),
+                )
                 succeeded += 1
             except OSError as exc:
-                logger.error("Undo failed for %s: %s", dst, exc)
+                logger.error(
+                    "Undo failed for %s: %s",
+                    sanitise_log_value(str(dst)), exc,
+                )
                 failed += 1
 
         return succeeded, failed

@@ -250,10 +250,9 @@ def safe_destination(destination_dir: Path, file_path: Path) -> Path:
     is appended (e.g. ``report_1.pdf``, ``report_2.pdf``) until a free slot
     is found.
 
-    The check-then-increment loop is slightly vulnerable to a TOCTOU race
-    on extremely busy filesystems, but for a single-user file organiser on
-    a local drive the window is negligible. The counter always starts at 1
-    and the loop exits on the first free name found.
+    The loop is capped at ``MAX_COLLISION_ATTEMPTS`` (99 999) to prevent an
+    infinite loop when the filesystem is full or a degenerate directory
+    contains an extremely large number of name-collisions.
 
     Args:
         destination_dir: The folder where the file should land.
@@ -261,13 +260,26 @@ def safe_destination(destination_dir: Path, file_path: Path) -> Path:
 
     Returns:
         A ``Path`` that does **not** yet exist on disk.
+
+    Raises:
+        RuntimeError: If more than ``MAX_COLLISION_ATTEMPTS`` collisions occur,
+            indicating a pathological filesystem state.
     """
+    #: Hard limit on rename attempts to prevent infinite loops.
+    MAX_COLLISION_ATTEMPTS = 99_999
+
     stem   = file_path.stem
     suffix = file_path.suffix
     target = destination_dir / file_path.name
     counter = 1
 
     while target.exists():
+        if counter > MAX_COLLISION_ATTEMPTS:
+            raise RuntimeError(
+                f"safe_destination: exceeded {MAX_COLLISION_ATTEMPTS} collision "
+                f"attempts for '{file_path.name}' in '{destination_dir}'. "
+                "The destination directory may be in a degenerate state."
+            )
         target = destination_dir / f"{stem}_{counter}{suffix}"
         counter += 1
 

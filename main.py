@@ -245,6 +245,18 @@ def main() -> None:
         ui.console.print(f"     Source : [path]{dest_resolved}[/]")
         ui.console.print(f"     Backup : [path]{backup_path}[/]")
         ui.console.print("")
+
+        # Guard against the (astronomically rare) case that the backup path
+        # already exists. Without this check shutil.move raises an opaque
+        # OSError that gives the user no indication of what happened.
+        if backup_path.exists():
+            ui.console.print(
+                f"  [error]✗  Backup aborted:[/] '{backup_path.name}' already exists "
+                "in the destination parent directory.\n"
+                "  This should never happen. Remove it manually and retry."
+            )
+            sys.exit(1)
+
         try:
             shutil.move(str(dest_resolved), str(backup_path))
             ui.console.print(
@@ -257,6 +269,7 @@ def main() -> None:
         except OSError as exc:
             ui.console.print(f"  [error]✗  Backup failed:[/] {exc}")
             sys.exit(1)
+
 
     # ── 1. Banner + config ────────────────────────────────────────────────────
     ui.print_banner()

@@ -159,8 +159,23 @@ class MoveJournal:
         failed    = 0
 
         for op in reversed(ops):
-            src = Path(op["src"])
-            dst = Path(op["dst"])
+            # Validate op structure before accessing keys — a corrupted or
+            # partially written journal entry missing 'src' or 'dst' would
+            # previously raise an unhandled KeyError, aborting the entire
+            # undo run (all remaining ops are skipped).
+            raw_src = op.get("src")
+            raw_dst = op.get("dst")
+            if not isinstance(raw_src, str) or not isinstance(raw_dst, str):
+                logger.error(
+                    "Undo skip — malformed journal op (missing/invalid src or dst): %s",
+                    sanitise_log_value(str(op)),
+                )
+                failed += 1
+                continue
+
+            src = Path(raw_src)
+            dst = Path(raw_dst)
+
 
             # Validate paths before moving (guard against tampered journal)
             try:

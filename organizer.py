@@ -283,7 +283,7 @@ class FileOrganizer:
         """Hash every file using a process pool.
 
         Returns:
-            A mapping of ``md5_hex → [file_path, ...]``.
+            A mapping of ``hash_hex → [file_path, ...]``.
             Groups with more than one path are duplicates.
         """
         if not files:
@@ -291,11 +291,37 @@ class FileOrganizer:
         logger.info("Hashing %d file(s) using multiprocessing …", len(files))
         hash_map: dict[str, list[Path]] = {}
 
-        with ProcessPoolExecutor(max_workers=self.workers) as pool:
+        # Cap worker processes at MAX_WORKERS (64) to prevent resource exhaustion.
+        # ProcessPoolExecutor(max_workers=None) uses os.cpu_count() which is safe,
+        # but if self.workers was somehow set > 64 after validation this is the
+        # last defence. Also clamp to len(files) so we don't spin idle processes.
+        from security import MAX_WORKERS
+        safe_workers = min(
+            self.workers or (MAX_WORKERS),
+            MAX_WORKERS,
+            len(files),
+        )
+
+        with ProcessPoolExecutor(max_workers=safe_workers) as pool:
             futures = {pool.submit(compute_hash, f): f for f in files}
 
             for future in as_completed(futures):
-                file_path, digest = future.result()
+                # Catch exceptions from worker processes (subprocess crash,
+                # unpickling error, BrokenProcessPool) so one bad file cannot
+                # abort the entire hashing run.
+                try:
+                    file_path, digest = future.result()
+                except Exception as exc:
+                    bad_file = futures[future]
+                    logger.error(
+                        "Hash worker failed for %s: %s",
+                        sanitise_log_value(str(bad_file)), exc,
+                    )
+                    self.stats["errors"] += 1
+                    if self._on_error:
+                        self._on_error(bad_file, exc)
+                    continue
+
                 if self._on_hashed:
                     self._on_hashed()
                 if digest is None:
@@ -304,6 +330,7 @@ class FileOrganizer:
                 hash_map.setdefault(digest, []).append(file_path)
 
         return hash_map
+
 
     # ------------------------------------------------------------------
     # Step 3 — Find duplicates
